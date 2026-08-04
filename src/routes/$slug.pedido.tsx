@@ -207,10 +207,14 @@ function PedidoPage() {
 
   return (
     <main className="min-h-screen bg-background pb-16">
-      <header className="bg-primary px-5 py-8 text-primary-foreground">
+      <header className="bg-primary px-5 py-7 text-primary-foreground">
         <div className="mx-auto max-w-lg">
-          <p className="font-display text-base tracking-[0.3em] text-accent">LAVOURA</p>
-          <h1 className="mt-2 text-4xl leading-tight">Pedido de busca e entrega</h1>
+          <img
+            src="/lavoura-logo-branco.svg"
+            alt="Lavoura Lavanderia Self Service"
+            className="h-9 w-auto sm:h-11"
+          />
+          <h1 className="mt-4 text-3xl leading-tight sm:text-4xl">Pedido de busca e entrega</h1>
           <p className="mt-1 text-sm opacity-90">
             {unidade.nome} · {unidade.cidade}
           </p>
