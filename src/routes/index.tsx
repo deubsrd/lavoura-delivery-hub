@@ -23,10 +23,14 @@ export const Route = createFileRoute("/")({
 function Index() {
   return (
     <main className="min-h-screen bg-background">
-      <section className="bg-primary px-5 pt-16 pb-20 text-primary-foreground">
+      <section className="bg-primary px-5 pt-12 pb-16 text-primary-foreground sm:pt-16 sm:pb-20">
         <div className="mx-auto max-w-2xl">
-          <p className="font-display text-xl tracking-[0.3em] text-accent">LAVOURA</p>
-          <h1 className="mt-4 text-5xl leading-[0.95] sm:text-6xl">
+          <img
+            src="/lavoura-logo-branco.svg"
+            alt="Lavoura Lavanderia Self Service"
+            className="h-12 w-auto sm:h-14"
+          />
+          <h1 className="mt-6 text-4xl leading-[0.95] sm:text-6xl">
             Sua roupa lavada, dobrada e de volta em casa
           </h1>
           <p className="mt-5 text-base/relaxed opacity-90">

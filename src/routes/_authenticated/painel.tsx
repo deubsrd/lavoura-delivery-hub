@@ -215,10 +215,14 @@ function PainelPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b bg-primary px-4 py-3 text-primary-foreground">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="font-display text-xs tracking-[0.3em] text-accent">LAVOURA</p>
-            <h1 className="text-2xl leading-tight">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+          <div className="min-w-0">
+            <img
+              src="/lavoura-logo-branco.svg"
+              alt="Lavoura Lavanderia Self Service"
+              className="h-6 w-auto"
+            />
+            <h1 className="mt-1 truncate text-xl leading-tight sm:text-2xl">
               {unidade ? `${unidade.nome} · ${unidade.cidade}` : "Painel de pedidos"}
             </h1>
           </div>

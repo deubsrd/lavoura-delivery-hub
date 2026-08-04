@@ -89,7 +89,11 @@ function AuthPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-primary px-5 py-10">
       <div className="w-full max-w-sm rounded-2xl bg-card p-7 shadow-card">
-        <p className="font-display text-sm tracking-[0.3em] text-accent">LAVOURA</p>
+        <img
+          src="/lavoura-logo-verde.svg"
+          alt="Lavoura Lavanderia Self Service"
+          className="h-9 w-auto"
+        />
         <h1 className="mt-2 text-3xl">Painel da unidade</h1>
         <p className="mt-1 text-sm text-muted-foreground">Acesso restrito à equipe.</p>
 
