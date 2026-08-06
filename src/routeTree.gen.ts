@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AdminConvitesRouteImport } from './routes/admin-convites'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as SlugPedidoRouteImport } from './routes/$slug.pedido'
+import { Route as AuthenticatedAdminPrecosRouteImport } from './routes/_authenticated/admin-precos'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
 
 const IndexRoute = IndexRouteImport.update({
@@ -22,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminConvitesRoute = AdminConvitesRouteImport.update({
+  id: '/admin-convites',
+  path: '/admin-convites',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -34,6 +41,12 @@ const SlugPedidoRoute = SlugPedidoRouteImport.update({
   path: '/$slug/pedido',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAdminPrecosRoute =
+  AuthenticatedAdminPrecosRouteImport.update({
+    id: '/admin-precos',
+    path: '/admin-precos',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedPainelRoute = AuthenticatedPainelRouteImport.update({
   id: '/painel',
   path: '/painel',
@@ -42,41 +55,62 @@ const AuthenticatedPainelRoute = AuthenticatedPainelRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin-convites': typeof AdminConvitesRoute
   '/auth': typeof AuthRoute
   '/$slug/pedido': typeof SlugPedidoRoute
+  '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/painel': typeof AuthenticatedPainelRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin-convites': typeof AdminConvitesRoute
   '/auth': typeof AuthRoute
   '/$slug/pedido': typeof SlugPedidoRoute
+  '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/painel': typeof AuthenticatedPainelRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/admin-convites': typeof AdminConvitesRoute
   '/auth': typeof AuthRoute
   '/$slug/pedido': typeof SlugPedidoRoute
+  '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/$slug/pedido' | '/painel'
+  fullPaths:
+    | '/'
+    | '/admin-convites'
+    | '/auth'
+    | '/$slug/pedido'
+    | '/admin-precos'
+    | '/painel'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/$slug/pedido' | '/painel'
+  to:
+    | '/'
+    | '/admin-convites'
+    | '/auth'
+    | '/$slug/pedido'
+    | '/admin-precos'
+    | '/painel'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/admin-convites'
     | '/auth'
     | '/$slug/pedido'
+    | '/_authenticated/admin-precos'
     | '/_authenticated/painel'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AdminConvitesRoute: typeof AdminConvitesRoute
   AuthRoute: typeof AuthRoute
   SlugPedidoRoute: typeof SlugPedidoRoute
 }
@@ -97,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin-convites': {
+      id: '/admin-convites'
+      path: '/admin-convites'
+      fullPath: '/admin-convites'
+      preLoaderRoute: typeof AdminConvitesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -111,6 +152,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugPedidoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/admin-precos': {
+      id: '/_authenticated/admin-precos'
+      path: '/admin-precos'
+      fullPath: '/admin-precos'
+      preLoaderRoute: typeof AuthenticatedAdminPrecosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/painel': {
       id: '/_authenticated/painel'
       path: '/painel'
@@ -122,10 +170,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminPrecosRoute: typeof AuthenticatedAdminPrecosRoute
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminPrecosRoute: AuthenticatedAdminPrecosRoute,
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
 }
 
@@ -135,9 +185,20 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AdminConvitesRoute: AdminConvitesRoute,
   AuthRoute: AuthRoute,
   SlugPedidoRoute: SlugPedidoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

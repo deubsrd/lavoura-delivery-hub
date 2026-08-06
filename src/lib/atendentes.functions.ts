@@ -2,28 +2,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-/** Lista pública de unidades (usada na tela de acesso da equipe). */
-export type UnidadeResumo = { id: string; nome: string; slug: string; cidade: string };
-
-export const listarUnidades = createServerFn({ method: "GET" }).handler(
-  async (): Promise<UnidadeResumo[]> => {
-  const { getPublicClient } = await import("./supabase-public.server");
-  const { data, error } = await getPublicClient()
-    .from("unidades")
-    .select("id, nome, slug, cidade")
-    .order("nome");
-  if (error) throw new Error(error.message);
-    return data ?? [];
-  },
-);
-
 /**
  * Garante que o usuário logado tenha um cadastro de atendente vinculado à
- * unidade escolhida no momento do cadastro (guardada nos metadados do usuário).
+ * unidade correspondente ao código de convite informado no cadastro
+ * (guardado nos metadados do usuário). A primeira atendente vinculada a
+ * uma unidade vira admin automaticamente — ver migração atendente_role.
  */
 export const garantirVinculoAtendente = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .handler(async ({ context }): Promise<{ vinculado: boolean; erro?: string }> => {
     const { data: existente } = await context.supabase
       .from("atendentes")
       .select("id")
@@ -35,25 +22,40 @@ export const garantirVinculoAtendente = createServerFn({ method: "POST" })
     const { data: userData, error: userErr } = await supabaseAdmin.auth.admin.getUserById(
       context.userId,
     );
-    if (userErr || !userData.user) return { vinculado: false };
+    if (userErr || !userData.user) {
+      return { vinculado: false, erro: "Não foi possível ler seu usuário." };
+    }
 
     const meta = z
-      .object({ unidade_slug: z.string().min(1), nome: z.string().optional() })
+      .object({ codigo_convite: z.string().min(1), nome: z.string().optional() })
       .safeParse(userData.user.user_metadata ?? {});
-    if (!meta.success) return { vinculado: false };
+    if (!meta.success) {
+      return { vinculado: false, erro: "Cadastro incompleto: nenhum código de convite foi informado." };
+    }
 
-    const { data: unidade } = await supabaseAdmin
-      .from("unidades")
-      .select("id")
-      .eq("slug", meta.data.unidade_slug)
-      .maybeSingle();
-    if (!unidade) return { vinculado: false };
+    const { data: unidadeId, error: rpcErr } = await context.supabase.rpc(
+      "unidade_por_codigo_convite",
+      { codigo: meta.data.codigo_convite.trim() },
+    );
+    if (rpcErr) return { vinculado: false, erro: "Não foi possível validar o código de convite." };
+    if (!unidadeId) {
+      return {
+        vinculado: false,
+        erro: "Código de convite inválido. Confira o código com o responsável da sua unidade.",
+      };
+    }
+
+    const { count: jaExisteAtendente } = await supabaseAdmin
+      .from("atendentes")
+      .select("id", { count: "exact", head: true })
+      .eq("unidade_id", unidadeId);
 
     const { error } = await supabaseAdmin.from("atendentes").insert({
       id: context.userId,
       nome: meta.data.nome ?? userData.user.email ?? "",
-      unidade_id: unidade.id,
+      unidade_id: unidadeId,
+      role: (jaExisteAtendente ?? 0) === 0 ? "admin" : "atendente",
     });
-    if (error) return { vinculado: false };
+    if (error) return { vinculado: false, erro: "Não foi possível concluir o vínculo com a unidade." };
     return { vinculado: true };
   });

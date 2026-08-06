@@ -4,13 +4,11 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
-import { listarUnidades, type UnidadeResumo } from "@/lib/atendentes.functions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/auth")({
-  loader: async () => ({ unidades: await listarUnidades() }),
   head: () => ({
     meta: [
       { title: "Acesso da equipe — Lavoura" },
@@ -35,13 +33,12 @@ export const Route = createFileRoute("/auth")({
 });
 
 function AuthPage() {
-  const { unidades } = Route.useLoaderData() as { unidades: UnidadeResumo[] };
   const navigate = useNavigate();
   const [modo, setModo] = useState<"entrar" | "cadastrar">("entrar");
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [unidadeSlug, setUnidadeSlug] = useState(unidades[0]?.slug ?? "");
+  const [codigoConvite, setCodigoConvite] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [avisoEmail, setAvisoEmail] = useState(false);
 
@@ -66,12 +63,33 @@ function AuthPage() {
       return;
     }
 
+    const codigo = codigoConvite.trim();
+    if (!codigo) {
+      setCarregando(false);
+      toast.error("Informe o código de convite da sua unidade.");
+      return;
+    }
+
+    // Checagem no cliente só para dar feedback rápido; a validação que
+    // realmente importa acontece de novo no servidor ao vincular a
+    // atendente (garantirVinculoAtendente), então nenhum client não
+    // confiável decide sozinho se o código é válido.
+    const { data: unidadeId, error: codigoErr } = await supabase.rpc(
+      "unidade_por_codigo_convite",
+      { codigo },
+    );
+    if (codigoErr || !unidadeId) {
+      setCarregando(false);
+      toast.error("Código de convite inválido. Confira com o responsável da sua unidade.");
+      return;
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password: senha,
       options: {
         emailRedirectTo: window.location.origin + "/painel",
-        data: { nome, unidade_slug: unidadeSlug },
+        data: { nome, codigo_convite: codigo },
       },
     });
     setCarregando(false);
@@ -126,19 +144,17 @@ function AuthPage() {
                     <Input value={nome} onChange={(e) => setNome(e.target.value)} required />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Unidade</Label>
-                    <select
-                      value={unidadeSlug}
-                      onChange={(e) => setUnidadeSlug(e.target.value)}
-                      className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    <Label>Código de convite</Label>
+                    <Input
+                      value={codigoConvite}
+                      onChange={(e) => setCodigoConvite(e.target.value.toUpperCase())}
+                      placeholder="Recebido da sua unidade"
+                      autoCapitalize="characters"
                       required
-                    >
-                      {unidades.map((u) => (
-                        <option key={u.id} value={u.slug}>
-                          {u.nome} — {u.cidade}
-                        </option>
-                      ))}
-                    </select>
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Peça o código à responsável da sua unidade Lavoura.
+                    </p>
                   </div>
                 </>
               ) : null}
