@@ -1,5 +1,4 @@
 export type TipoServico = "busca" | "entrega" | "busca_e_entrega";
-export type HorarioPreferido = "manha" | "tarde" | "sem_preferencia";
 export type PedidoStatus =
   | "recebido"
   | "motoboy_busca"
@@ -13,12 +12,6 @@ export const TIPO_SERVICO_LABEL: Record<TipoServico, string> = {
   busca: "Só busca",
   entrega: "Só entrega",
   busca_e_entrega: "Busca e entrega",
-};
-
-export const HORARIO_LABEL: Record<HorarioPreferido, string> = {
-  manha: "Manhã",
-  tarde: "Tarde",
-  sem_preferencia: "Sem preferência",
 };
 
 export const STATUS_LABEL: Record<PedidoStatus, string> = {
@@ -86,6 +79,24 @@ export function tempoRelativo(iso: string): string {
   if (horas < 24) return `há ${horas}h`;
   const dias = Math.floor(horas / 24);
   return `há ${dias} ${dias === 1 ? "dia" : "dias"}`;
+}
+
+/** "13:00:00" -> "13h" / "13:30:00" -> "13h30" */
+export function horaCurta(hora: string): string {
+  const [h, m] = hora.split(":");
+  return m && m !== "00" ? `${h}h${m}` : `${h}h`;
+}
+
+export function textoHorarioFuncionamento(unidade: {
+  hora_abertura: string;
+  hora_fechamento: string;
+  hora_limite_pedido: string;
+}): string {
+  return `Atendemos das ${horaCurta(unidade.hora_abertura)} às ${horaCurta(unidade.hora_fechamento)}. Pedidos até às ${horaCurta(unidade.hora_limite_pedido)}.`;
+}
+
+export function formatarMoeda(valor: number): string {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 export function formatarDataHora(iso: string): string {

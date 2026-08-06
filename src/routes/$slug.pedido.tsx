@@ -5,13 +5,22 @@ import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, Clock, Loader2, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { criarPedido, getUnidadeBySlug } from "@/lib/pedidos.functions";
 import {
-  HORARIO_LABEL,
+  buscarClientePorCpf,
+  calcularResumoPedido,
+  criarClienteBasico,
+  criarPedido,
+  getUnidadeBySlug,
+  type ClienteEncontrado,
+  type ResumoPedido,
+} from "@/lib/pedidos.functions";
+import { isValidCpf, maskCpf, soDigitosCpf } from "@/lib/cpf";
+import {
   TIPO_SERVICO_LABEL,
   formatarDataHora,
+  formatarMoeda,
   maskTelefone,
-  type HorarioPreferido,
+  textoHorarioFuncionamento,
   type TipoServico,
 } from "@/lib/lavoura";
 import { Input } from "@/components/ui/input";
@@ -82,87 +91,237 @@ const enderecoVazio: Endereco = {
   referencia: "",
 };
 
+type Etapa = 1 | 2 | 3 | 4 | 5;
+const TOTAL_ETAPAS = 5;
+const TITULO_ETAPA: Record<Etapa, string> = {
+  1: "Seu CPF",
+  2: "Seus dados",
+  3: "Endereço",
+  4: "Sobre o pedido",
+  5: "Resumo",
+};
+
+function enderecoPorExtenso(e: {
+  rua: string | null;
+  numero: string | null;
+  bairro: string | null;
+}): string {
+  return `${e.rua ?? ""}, ${e.numero ?? ""} — ${e.bairro ?? ""}`;
+}
+
 function PedidoPage() {
   const { unidade } = Route.useLoaderData();
-  const enviar = useServerFn(criarPedido);
+
+  const buscarCliente = useServerFn(buscarClientePorCpf);
+  const criarClienteFn = useServerFn(criarClienteBasico);
+  const calcularResumoFn = useServerFn(calcularResumoPedido);
+  const enviarPedidoFn = useServerFn(criarPedido);
+
+  const [etapa, setEtapa] = useState<Etapa>(1);
+  const [pilha, setPilha] = useState<Etapa[]>([]);
+  const [fase1, setFase1] = useState<"cpf" | "confirmar-endereco">("cpf");
+
+  const [cpf, setCpf] = useState("");
+  const [clienteEncontrado, setClienteEncontrado] = useState<ClienteEncontrado | null>(null);
 
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
+
   const [coleta, setColeta] = useState<Endereco>(enderecoVazio);
   const [entrega, setEntrega] = useState<Endereco>(enderecoVazio);
   const [cestos, setCestos] = useState(1);
   const [tipo, setTipo] = useState<TipoServico | "">("");
-  const [mesmoEndereco, setMesmoEndereco] = useState<boolean | null>(null);
-  const [horario, setHorario] = useState<HorarioPreferido>("sem_preferencia");
+  const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState<boolean | null>(null);
   const [observacoes, setObservacoes] = useState("");
   const [armadilha, setArmadilha] = useState("");
   const [erros, setErros] = useState<Record<string, string>>({});
+
+  const [resumo, setResumo] = useState<ResumoPedido | null>(null);
+  const [usarProximoDiaUtil, setUsarProximoDiaUtil] = useState(false);
+
   const [confirmado, setConfirmado] = useState<{
     data_prevista_retorno: string | null;
+    detalhamento: { rotulo: string; valor: number }[];
+    valor_total: number;
   } | null>(null);
 
-  const mutation = useMutation({
-    mutationFn: (payload: Parameters<typeof criarPedido>[0]) => enviar(payload),
-    onSuccess: (res) => {
-      setConfirmado({ data_prevista_retorno: res.data_prevista_retorno });
+  function ir(novaEtapa: Etapa) {
+    setPilha((p) => [...p, etapa]);
+    setEtapa(novaEtapa);
+  }
+
+  function voltar() {
+    if (etapa === 1 && fase1 === "confirmar-endereco") {
+      setFase1("cpf");
+      return;
+    }
+    setPilha((p) => {
+      const copia = [...p];
+      const anterior = copia.pop();
+      if (anterior) setEtapa(anterior);
+      return copia;
+    });
+  }
+
+  const buscaCpfMutation = useMutation({
+    mutationFn: (cpfLimpo: string) => buscarCliente({ data: { slug: unidade.slug, cpf: cpfLimpo } }),
+    onSuccess: (cliente) => {
+      if (cliente) {
+        setClienteEncontrado(cliente);
+        setFase1("confirmar-endereco");
+      } else {
+        setClienteEncontrado(null);
+        ir(2);
+      }
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Não foi possível enviar o pedido.");
-    },
+    onError: () => toast.error("Não foi possível verificar o CPF. Tente novamente."),
   });
 
-  function validar() {
+  function confirmarCpf() {
+    if (!isValidCpf(cpf)) {
+      setErros({ cpf: "CPF inválido" });
+      return;
+    }
+    setErros({});
+    buscaCpfMutation.mutate(soDigitosCpf(cpf));
+  }
+
+  function usarEnderecoAnterior(usar: boolean) {
+    if (!clienteEncontrado) return;
+    if (usar) {
+      setColeta({
+        rua: clienteEncontrado.ultima_rua ?? "",
+        numero: clienteEncontrado.ultimo_numero ?? "",
+        bairro: clienteEncontrado.ultimo_bairro ?? "",
+        complemento: clienteEncontrado.ultimo_complemento ?? "",
+        referencia: clienteEncontrado.ultima_referencia ?? "",
+      });
+      setEntrega({
+        rua: clienteEncontrado.ultima_rua_entrega ?? "",
+        numero: clienteEncontrado.ultimo_numero_entrega ?? "",
+        bairro: clienteEncontrado.ultimo_bairro_entrega ?? "",
+        complemento: clienteEncontrado.ultimo_complemento_entrega ?? "",
+        referencia: clienteEncontrado.ultima_referencia_entrega ?? "",
+      });
+      setMesmoEnderecoEntrega(clienteEncontrado.ultimo_mesmo_endereco_entrega);
+      setNome(clienteEncontrado.nome_completo);
+      setTelefone(maskTelefone(clienteEncontrado.telefone));
+      ir(4);
+    } else {
+      setColeta(enderecoVazio);
+      setEntrega(enderecoVazio);
+      setMesmoEnderecoEntrega(null);
+      setNome(clienteEncontrado.nome_completo);
+      setTelefone(maskTelefone(clienteEncontrado.telefone));
+      ir(3);
+    }
+  }
+
+  const criarClienteMutation = useMutation({
+    mutationFn: () =>
+      criarClienteFn({
+        data: { slug: unidade.slug, cpf: soDigitosCpf(cpf), nome_completo: nome, telefone },
+      }),
+    onSuccess: () => ir(3),
+    onError: (error: Error) => toast.error(error.message || "Não foi possível salvar seus dados."),
+  });
+
+  function confirmarDadosNovos() {
     const e: Record<string, string> = {};
     if (nome.trim().length < 3) e["nome"] = "Informe o nome completo";
     if (telefone.replace(/\D/g, "").length < 10) e["telefone"] = "Telefone inválido";
+    setErros(e);
+    if (Object.keys(e).length > 0) return;
+    criarClienteMutation.mutate();
+  }
+
+  function confirmarEndereco() {
+    const e: Record<string, string> = {};
     if (!coleta.rua.trim()) e["rua"] = "Obrigatório";
     if (!coleta.numero.trim()) e["numero"] = "Obrigatório";
     if (!coleta.bairro.trim()) e["bairro"] = "Obrigatório";
+    setErros(e);
+    if (Object.keys(e).length > 0) return;
+    ir(4);
+  }
+
+  const resumoMutation = useMutation({
+    mutationFn: (usarProximoDia: boolean) =>
+      calcularResumoFn({
+        data: {
+          slug: unidade.slug,
+          quantidade_cestos: cestos,
+          tipo_servico: tipo as TipoServico,
+          rua: coleta.rua,
+          numero: coleta.numero,
+          bairro: coleta.bairro,
+          complemento: coleta.complemento || null,
+          referencia: coleta.referencia || null,
+          usar_proximo_dia_util: usarProximoDia,
+        },
+      }),
+    onSuccess: (novoResumo, usarProximoDia) => {
+      setResumo(novoResumo);
+      setUsarProximoDiaUtil(usarProximoDia);
+      if (etapa !== 5) ir(5);
+    },
+    onError: () => toast.error("Não foi possível calcular o resumo do pedido."),
+  });
+
+  function confirmarDadosPedido() {
+    const e: Record<string, string> = {};
     if (!tipo) e["tipo"] = "Escolha o tipo de serviço";
     if (tipo === "busca_e_entrega") {
-      if (mesmoEndereco === null) e["mesmoEndereco"] = "Responda esta pergunta";
-      if (mesmoEndereco === false) {
+      if (mesmoEnderecoEntrega === null) e["mesmoEndereco"] = "Responda esta pergunta";
+      if (mesmoEnderecoEntrega === false) {
         if (!entrega.rua.trim()) e["rua_entrega"] = "Obrigatório";
         if (!entrega.numero.trim()) e["numero_entrega"] = "Obrigatório";
         if (!entrega.bairro.trim()) e["bairro_entrega"] = "Obrigatório";
       }
     }
     setErros(e);
-    return Object.keys(e).length === 0;
+    if (Object.keys(e).length > 0) return;
+    resumoMutation.mutate(false);
   }
 
-  function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!validar()) {
-      toast.error("Revise os campos destacados.");
-      return;
-    }
-    mutation.mutate({
-      data: {
-        slug: unidade.slug,
-        nome_completo: nome,
-        telefone,
-        rua: coleta.rua,
-        numero: coleta.numero,
-        bairro: coleta.bairro,
-        complemento: coleta.complemento || null,
-        referencia: coleta.referencia || null,
-        quantidade_cestos: cestos,
-        tipo_servico: tipo as TipoServico,
-        horario_preferido: horario,
-        observacoes: observacoes || null,
-        mesmo_endereco_entrega: tipo === "busca_e_entrega" ? mesmoEndereco : null,
-        rua_entrega: entrega.rua || null,
-        numero_entrega: entrega.numero || null,
-        bairro_entrega: entrega.bairro || null,
-        complemento_entrega: entrega.complemento || null,
-        referencia_entrega: entrega.referencia || null,
-        armadilha,
-      },
-    });
-  }
+  const enviarMutation = useMutation({
+    mutationFn: () =>
+      enviarPedidoFn({
+        data: {
+          slug: unidade.slug,
+          cpf: soDigitosCpf(cpf),
+          nome_completo: clienteEncontrado ? undefined : nome,
+          telefone: clienteEncontrado ? undefined : telefone,
+          rua: coleta.rua,
+          numero: coleta.numero,
+          bairro: coleta.bairro,
+          complemento: coleta.complemento || null,
+          referencia: coleta.referencia || null,
+          quantidade_cestos: cestos,
+          tipo_servico: tipo as TipoServico,
+          observacoes: observacoes || null,
+          mesmo_endereco_entrega: tipo === "busca_e_entrega" ? mesmoEnderecoEntrega : null,
+          rua_entrega: entrega.rua || null,
+          numero_entrega: entrega.numero || null,
+          bairro_entrega: entrega.bairro || null,
+          complemento_entrega: entrega.complemento || null,
+          referencia_entrega: entrega.referencia || null,
+          usar_proximo_dia_util: usarProximoDiaUtil,
+          armadilha,
+        },
+      }),
+    onSuccess: (res) => {
+      setConfirmado({
+        data_prevista_retorno: res.data_prevista_retorno,
+        detalhamento: res.detalhamento,
+        valor_total: res.valor_total,
+      });
+    },
+    onError: (error: Error) => toast.error(error.message || "Não foi possível enviar o pedido."),
+  });
 
   if (confirmado) {
+    const tituloEndereco = tipo === "entrega" ? "Endereço de entrega" : "Endereço de coleta";
     return (
       <main className="min-h-screen bg-background px-5 py-12">
         <div className="mx-auto max-w-lg text-center">
@@ -173,21 +332,10 @@ function PedidoPage() {
           </p>
 
           <div className="mt-8 space-y-3 rounded-xl border bg-card p-5 text-left text-sm shadow-card">
-            <Resumo rotulo="Nome" valor={nome} />
-            <Resumo rotulo="Telefone" valor={telefone} />
+            <Resumo rotulo="Nome" valor={nome || clienteEncontrado?.nome_completo || ""} />
             <Resumo rotulo="Serviço" valor={TIPO_SERVICO_LABEL[tipo as TipoServico]} />
             <Resumo rotulo="Cestos" valor={String(cestos)} />
-            <Resumo rotulo="Horário preferido" valor={HORARIO_LABEL[horario]} />
-            <Resumo
-              rotulo={tipo === "entrega" ? "Endereço de entrega" : "Endereço de coleta"}
-              valor={`${coleta.rua}, ${coleta.numero} — ${coleta.bairro}`}
-            />
-            {tipo === "busca_e_entrega" && mesmoEndereco === false ? (
-              <Resumo
-                rotulo="Endereço de entrega"
-                valor={`${entrega.rua}, ${entrega.numero} — ${entrega.bairro}`}
-              />
-            ) : null}
+            <Resumo rotulo={tituloEndereco} valor={`${coleta.rua}, ${coleta.numero} — ${coleta.bairro}`} />
             {observacoes ? <Resumo rotulo="Observações" valor={observacoes} /> : null}
             {confirmado.data_prevista_retorno ? (
               <Resumo
@@ -195,6 +343,19 @@ function PedidoPage() {
                 valor={formatarDataHora(confirmado.data_prevista_retorno)}
               />
             ) : null}
+          </div>
+
+          <div className="mt-4 space-y-1.5 rounded-xl border bg-card p-5 text-left text-sm shadow-card">
+            {confirmado.detalhamento.map((item) => (
+              <div key={item.rotulo} className="flex justify-between gap-4">
+                <span className="text-muted-foreground">{item.rotulo}</span>
+                <span className={item.valor < 0 ? "text-accent" : ""}>{formatarMoeda(item.valor)}</span>
+              </div>
+            ))}
+            <div className="mt-2 flex justify-between border-t pt-2 font-medium">
+              <span>Total estimado</span>
+              <span>{formatarMoeda(confirmado.valor_total)}</span>
+            </div>
           </div>
 
           <Link to="/" className="mt-8 inline-block text-sm font-medium underline">
@@ -220,189 +381,325 @@ function PedidoPage() {
           </p>
           <p className="mt-4 flex items-start gap-2 rounded-lg bg-accent/15 p-3 text-sm">
             <Clock className="mt-0.5 size-4 shrink-0 text-accent" />
-            Suas roupas ficam prontas em até {unidade.prazo_padrao_horas}h após a busca.
+            {textoHorarioFuncionamento(unidade)}
           </p>
         </div>
       </header>
 
-      <form onSubmit={onSubmit} className="mx-auto mt-8 max-w-lg space-y-8 px-5">
-        <Bloco titulo="Seus dados">
-          <Campo rotulo="Nome completo" erro={erros["nome"]}>
-            <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Maria Silva" />
-          </Campo>
-          <Campo rotulo="Telefone / WhatsApp" erro={erros["telefone"]}>
-            <Input
-              value={telefone}
-              onChange={(e) => setTelefone(maskTelefone(e.target.value))}
-              inputMode="tel"
-              placeholder="(95) 99999-9999"
-            />
-          </Campo>
-        </Bloco>
+      <div className="mx-auto mt-6 max-w-lg px-5">
+        <ProgressoEtapas atual={etapa} />
+      </div>
 
-        <Bloco
-          titulo={tipo === "entrega" ? "Endereço de entrega" : "Endereço de coleta"}
-          descricao="Onde o motoboy deve ir."
-        >
-          <BlocoEndereco
-            valor={coleta}
-            onChange={setColeta}
-            erros={{
-              rua: erros["rua"],
-              numero: erros["numero"],
-              bairro: erros["bairro"],
-            }}
-          />
-        </Bloco>
-
-        <Bloco titulo="Sobre o pedido">
-          <Campo rotulo="Quantidade aproximada de cestos">
-            <div className="flex items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setCestos((c) => Math.max(1, c - 1))}
-                aria-label="Diminuir cestos"
-              >
-                <Minus className="size-4" />
-              </Button>
-              <span className="w-10 text-center font-display text-2xl">{cestos}</span>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setCestos((c) => Math.min(50, c + 1))}
-                aria-label="Aumentar cestos"
-              >
-                <Plus className="size-4" />
-              </Button>
-            </div>
-          </Campo>
-
-          <Campo rotulo="Tipo de serviço" erro={erros["tipo"]}>
-            <div className="grid gap-2">
-              {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((opcao) => (
-                <button
-                  key={opcao}
-                  type="button"
-                  onClick={() => {
-                    setTipo(opcao);
-                    if (opcao !== "busca_e_entrega") setMesmoEndereco(null);
-                  }}
-                  className={`rounded-lg border p-3 text-left text-sm transition ${
-                    tipo === opcao
-                      ? "border-accent bg-accent/10 font-medium"
-                      : "bg-card hover:bg-secondary"
-                  }`}
-                >
-                  <span className="block">{TIPO_SERVICO_LABEL[opcao]}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {opcao === "busca"
-                      ? "O motoboy busca as roupas na sua casa."
-                      : opcao === "entrega"
-                        ? "O motoboy leva as roupas prontas até você."
-                        : "Buscamos as roupas e devolvemos prontas."}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </Campo>
-
-          {tipo === "busca_e_entrega" ? (
-            <Campo
-              rotulo="O endereço de entrega é o mesmo da coleta?"
-              erro={erros["mesmoEndereco"]}
+      <div className="mx-auto mt-6 max-w-lg space-y-8 px-5">
+        {etapa === 1 && fase1 === "cpf" ? (
+          <Bloco titulo="Informe seu CPF" descricao="Usamos para agilizar pedidos futuros.">
+            <Campo rotulo="CPF" erro={erros["cpf"]}>
+              <Input
+                value={cpf}
+                onChange={(e) => setCpf(maskCpf(e.target.value))}
+                inputMode="numeric"
+                placeholder="000.000.000-00"
+              />
+            </Campo>
+            <Button
+              onClick={confirmarCpf}
+              disabled={buscaCpfMutation.isPending}
+              className="h-12 w-full bg-accent text-accent-foreground hover:bg-accent/90"
             >
-              <div className="flex gap-2">
-                {[
-                  { label: "Sim", valor: true },
-                  { label: "Não", valor: false },
-                ].map((op) => (
+              {buscaCpfMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+              Continuar
+            </Button>
+          </Bloco>
+        ) : null}
+
+        {etapa === 1 && fase1 === "confirmar-endereco" && clienteEncontrado ? (
+          <Bloco titulo={`Bem-vindo(a) de volta, ${clienteEncontrado.nome_completo.split(" ")[0]}!`}>
+            <p className="text-sm text-muted-foreground">Usar o mesmo endereço de coleta e entrega da última vez?</p>
+            <div className="rounded-lg border bg-card p-3 text-sm">
+              <p className="font-medium">Coleta</p>
+              <p className="text-muted-foreground">{enderecoPorExtenso({
+                rua: clienteEncontrado.ultima_rua,
+                numero: clienteEncontrado.ultimo_numero,
+                bairro: clienteEncontrado.ultimo_bairro,
+              })}</p>
+              {clienteEncontrado.ultimo_mesmo_endereco_entrega === false ? (
+                <>
+                  <p className="mt-2 font-medium">Entrega</p>
+                  <p className="text-muted-foreground">{enderecoPorExtenso({
+                    rua: clienteEncontrado.ultima_rua_entrega,
+                    numero: clienteEncontrado.ultimo_numero_entrega,
+                    bairro: clienteEncontrado.ultimo_bairro_entrega,
+                  })}</p>
+                </>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => usarEnderecoAnterior(false)}>
+                Não, usar outro
+              </Button>
+              <Button className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => usarEnderecoAnterior(true)}>
+                Sim, usar o mesmo
+              </Button>
+            </div>
+          </Bloco>
+        ) : null}
+
+        {etapa === 2 ? (
+          <Bloco titulo="Seus dados">
+            <Campo rotulo="Nome completo" erro={erros["nome"]}>
+              <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Maria Silva" />
+            </Campo>
+            <Campo rotulo="Telefone / WhatsApp" erro={erros["telefone"]}>
+              <Input
+                value={telefone}
+                onChange={(e) => setTelefone(maskTelefone(e.target.value))}
+                inputMode="tel"
+                placeholder="(95) 99999-9999"
+              />
+            </Campo>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={voltar}>Voltar</Button>
+              <Button
+                onClick={confirmarDadosNovos}
+                disabled={criarClienteMutation.isPending}
+                className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+              >
+                {criarClienteMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+                Continuar
+              </Button>
+            </div>
+          </Bloco>
+        ) : null}
+
+        {etapa === 3 ? (
+          <Bloco titulo="Endereço" descricao="Onde o motoboy deve ir.">
+            <BlocoEndereco
+              valor={coleta}
+              onChange={setColeta}
+              erros={{ rua: erros["rua"], numero: erros["numero"], bairro: erros["bairro"] }}
+            />
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={voltar}>Voltar</Button>
+              <Button onClick={confirmarEndereco} className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90">
+                Continuar
+              </Button>
+            </div>
+          </Bloco>
+        ) : null}
+
+        {etapa === 4 ? (
+          <Bloco titulo="Sobre o pedido">
+            <Campo rotulo="Quantidade aproximada de cestos">
+              <div className="flex items-center gap-3">
+                <Button type="button" variant="outline" size="icon" onClick={() => setCestos((c) => Math.max(1, c - 1))} aria-label="Diminuir cestos">
+                  <Minus className="size-4" />
+                </Button>
+                <span className="w-10 text-center font-display text-2xl">{cestos}</span>
+                <Button type="button" variant="outline" size="icon" onClick={() => setCestos((c) => Math.min(50, c + 1))} aria-label="Aumentar cestos">
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </Campo>
+
+            <Campo rotulo="Tipo de serviço" erro={erros["tipo"]}>
+              <div className="grid gap-2">
+                {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((opcao) => (
                   <button
-                    key={op.label}
+                    key={opcao}
                     type="button"
-                    onClick={() => setMesmoEndereco(op.valor)}
-                    className={`flex-1 rounded-lg border p-3 text-sm transition ${
-                      mesmoEndereco === op.valor
-                        ? "border-accent bg-accent/10 font-medium"
-                        : "bg-card hover:bg-secondary"
+                    onClick={() => {
+                      setTipo(opcao);
+                      if (opcao !== "busca_e_entrega") setMesmoEnderecoEntrega(null);
+                    }}
+                    className={`rounded-lg border p-3 text-left text-sm transition ${
+                      tipo === opcao ? "border-accent bg-accent/10 font-medium" : "bg-card hover:bg-secondary"
                     }`}
                   >
-                    {op.label}
+                    <span className="block">{TIPO_SERVICO_LABEL[opcao]}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {opcao === "busca"
+                        ? "O motoboy busca as roupas na sua casa."
+                        : opcao === "entrega"
+                          ? "O motoboy leva as roupas prontas até você."
+                          : "Buscamos as roupas e devolvemos prontas."}
+                    </span>
                   </button>
                 ))}
               </div>
             </Campo>
-          ) : null}
 
-          {tipo === "busca_e_entrega" && mesmoEndereco === false ? (
-            <div className="rounded-lg border border-dashed p-4">
-              <p className="mb-3 font-display text-xl">Endereço de entrega</p>
-              <BlocoEndereco
-                valor={entrega}
-                onChange={setEntrega}
-                erros={{
-                  rua: erros["rua_entrega"],
-                  numero: erros["numero_entrega"],
-                  bairro: erros["bairro_entrega"],
-                }}
+            {tipo === "busca_e_entrega" ? (
+              <Campo rotulo="O endereço de entrega é o mesmo da coleta?" erro={erros["mesmoEndereco"]}>
+                <div className="flex gap-2">
+                  {[{ label: "Sim", valor: true }, { label: "Não", valor: false }].map((op) => (
+                    <button
+                      key={op.label}
+                      type="button"
+                      onClick={() => setMesmoEnderecoEntrega(op.valor)}
+                      className={`flex-1 rounded-lg border p-3 text-sm transition ${
+                        mesmoEnderecoEntrega === op.valor ? "border-accent bg-accent/10 font-medium" : "bg-card hover:bg-secondary"
+                      }`}
+                    >
+                      {op.label}
+                    </button>
+                  ))}
+                </div>
+              </Campo>
+            ) : null}
+
+            {tipo === "busca_e_entrega" && mesmoEnderecoEntrega === false ? (
+              <div className="rounded-lg border border-dashed p-4">
+                <p className="mb-3 font-display text-xl">Endereço de entrega</p>
+                <BlocoEndereco
+                  valor={entrega}
+                  onChange={setEntrega}
+                  erros={{ rua: erros["rua_entrega"], numero: erros["numero_entrega"], bairro: erros["bairro_entrega"] }}
+                />
+              </div>
+            ) : null}
+
+            <Campo rotulo="Observações (opcional)">
+              <Textarea
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Ex.: tem peça delicada, portão azul, ligar antes de subir…"
+                rows={3}
               />
-            </div>
-          ) : null}
+            </Campo>
 
-          <Campo rotulo="Horário preferido (opcional)">
             <div className="flex gap-2">
-              {(["manha", "tarde", "sem_preferencia"] as HorarioPreferido[]).map((op) => (
-                <button
-                  key={op}
-                  type="button"
-                  onClick={() => setHorario(op)}
-                  className={`flex-1 rounded-lg border p-2.5 text-xs transition ${
-                    horario === op
-                      ? "border-accent bg-accent/10 font-medium"
-                      : "bg-card hover:bg-secondary"
-                  }`}
-                >
-                  {HORARIO_LABEL[op]}
-                </button>
-              ))}
+              <Button variant="outline" onClick={voltar}>Voltar</Button>
+              <Button
+                onClick={confirmarDadosPedido}
+                disabled={resumoMutation.isPending}
+                className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+              >
+                {resumoMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+                Ver resumo
+              </Button>
             </div>
-          </Campo>
+          </Bloco>
+        ) : null}
 
-          <Campo rotulo="Observações (opcional)">
-            <Textarea
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              placeholder="Ex.: tem peça delicada, portão azul, ligar antes de subir…"
-              rows={3}
-            />
-          </Campo>
-        </Bloco>
+        {etapa === 5 && resumo ? (
+          <EtapaResumo
+            resumo={resumo}
+            usarProximoDiaUtil={usarProximoDiaUtil}
+            recalculando={resumoMutation.isPending}
+            enviando={enviarMutation.isPending}
+            onVoltar={voltar}
+            onAgendarProximoDia={() => resumoMutation.mutate(true)}
+            onConfirmar={() => enviarMutation.mutate()}
+          />
+        ) : null}
 
         {/* Campo honeypot: invisível para pessoas, preenchido por robôs. */}
         <div className="hidden" aria-hidden="true">
           <label>
             Não preencha
-            <input
-              tabIndex={-1}
-              autoComplete="off"
-              value={armadilha}
-              onChange={(e) => setArmadilha(e.target.value)}
-            />
+            <input tabIndex={-1} autoComplete="off" value={armadilha} onChange={(e) => setArmadilha(e.target.value)} />
           </label>
         </div>
-
-        <Button
-          type="submit"
-          disabled={mutation.isPending}
-          className="h-12 w-full bg-accent text-accent-foreground hover:bg-accent/90"
-        >
-          {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-          Enviar pedido
-        </Button>
-      </form>
+      </div>
     </main>
+  );
+}
+
+function ProgressoEtapas({ atual }: { atual: Etapa }) {
+  return (
+    <div>
+      <div className="flex gap-1.5">
+        {Array.from({ length: TOTAL_ETAPAS }, (_, i) => (i + 1) as Etapa).map((n) => (
+          <div
+            key={n}
+            className={`h-1.5 flex-1 rounded-full ${n <= atual ? "bg-accent" : "bg-secondary"}`}
+          />
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Etapa {atual} de {TOTAL_ETAPAS} · {TITULO_ETAPA[atual]}
+      </p>
+    </div>
+  );
+}
+
+function EtapaResumo({
+  resumo,
+  usarProximoDiaUtil,
+  recalculando,
+  enviando,
+  onVoltar,
+  onAgendarProximoDia,
+  onConfirmar,
+}: {
+  resumo: ResumoPedido;
+  usarProximoDiaUtil: boolean;
+  recalculando: boolean;
+  enviando: boolean;
+  onVoltar: () => void;
+  onAgendarProximoDia: () => void;
+  onConfirmar: () => void;
+}) {
+  if (resumo.foraDoHorario && !usarProximoDiaUtil) {
+    return (
+      <Bloco titulo="Sem tempo hábil hoje">
+        <p className="text-sm text-muted-foreground">
+          Não conseguimos concluir esse pedido ainda hoje dentro do nosso horário de atendimento.
+          Deseja agendar para o próximo horário útil, a partir de{" "}
+          {formatarDataHora(resumo.proximoHorarioUtilIso)}?
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" className="flex-1" onClick={onVoltar}>
+            Não, voltar
+          </Button>
+          <Button
+            className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
+            onClick={onAgendarProximoDia}
+            disabled={recalculando}
+          >
+            {recalculando ? <Loader2 className="size-4 animate-spin" /> : null}
+            Sim, agendar
+          </Button>
+        </div>
+      </Bloco>
+    );
+  }
+
+  return (
+    <Bloco titulo="Resumo do pedido">
+      {resumo.deliveryMensagemErro ? (
+        <p className="rounded-lg bg-secondary p-3 text-xs text-muted-foreground">
+          {resumo.deliveryMensagemErro}
+        </p>
+      ) : null}
+      <div className="space-y-1.5 rounded-xl border bg-card p-4 text-sm">
+        {resumo.detalhamento.map((item) => (
+          <div key={item.rotulo} className="flex justify-between gap-4">
+            <span className="text-muted-foreground">{item.rotulo}</span>
+            <span className={item.valor < 0 ? "text-accent" : ""}>{formatarMoeda(item.valor)}</span>
+          </div>
+        ))}
+        <div className="mt-2 flex justify-between border-t pt-2 font-medium">
+          <span>Total estimado</span>
+          <span>{formatarMoeda(resumo.valorTotal)}</span>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Previsão de retorno: {formatarDataHora(resumo.previstoIso)}
+        {usarProximoDiaUtil ? " (agendado)" : ""}
+      </p>
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={onVoltar}>Voltar</Button>
+        <Button
+          onClick={onConfirmar}
+          disabled={enviando}
+          className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
+          Confirmar pedido
+        </Button>
+      </div>
+    </Bloco>
   );
 }
 
