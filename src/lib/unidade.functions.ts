@@ -52,7 +52,7 @@ export const salvarEnderecoUnidade = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<EnderecoUnidade> => {
     const { unidadeId } = await exigirAdmin(context);
 
-    const { geocodarEndereco } = await import("./google-maps.server");
+    const { geocodarEndereco } = await import("./geolocalizacao.server");
     const geocodificado = await geocodarEndereco(data.endereco);
     if (!geocodificado.ok) throw new Error(geocodificado.mensagem);
 

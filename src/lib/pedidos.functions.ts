@@ -162,7 +162,7 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   const { calcularPrazo, calcularProximoHorarioUtil, calcularPreco } = await import(
     "./pedido-calculo.server"
   );
-  const { calcularDistanciaKm } = await import("./google-maps.server");
+  const { calcularDistanciaKm } = await import("./geolocalizacao.server");
 
   const agora = new Date();
   const baseDateTime = input.usar_proximo_dia_util
