@@ -16,7 +16,11 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as SlugPedidoRouteImport } from './routes/$slug.pedido'
 import { Route as AuthenticatedAdminPrecosRouteImport } from './routes/_authenticated/admin-precos'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
+import { Route as AuthenticatedConfiguracoesConvitesRouteImport } from './routes/_authenticated/configuracoes/convites'
+import { Route as AuthenticatedConfiguracoesEnderecoRouteImport } from './routes/_authenticated/configuracoes/endereco'
+import { Route as AuthenticatedConfiguracoesIdentificacaoRouteImport } from './routes/_authenticated/configuracoes/identificacao'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -53,11 +57,34 @@ const AuthenticatedAdminPrecosRoute =
     path: '/admin-precos',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPainelRoute = AuthenticatedPainelRouteImport.update({
   id: '/painel',
   path: '/painel',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedConfiguracoesConvitesRoute =
+  AuthenticatedConfiguracoesConvitesRouteImport.update({
+    id: '/configuracoes/convites',
+    path: '/configuracoes/convites',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedConfiguracoesEnderecoRoute =
+  AuthenticatedConfiguracoesEnderecoRouteImport.update({
+    id: '/configuracoes/endereco',
+    path: '/configuracoes/endereco',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedConfiguracoesIdentificacaoRoute =
+  AuthenticatedConfiguracoesIdentificacaoRouteImport.update({
+    id: '/configuracoes/identificacao',
+    path: '/configuracoes/identificacao',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -66,7 +93,11 @@ export interface FileRoutesByFullPath {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
   '/painel': typeof AuthenticatedPainelRoute
+  '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
+  '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
+  '/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -75,7 +106,11 @@ export interface FileRoutesByTo {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
   '/painel': typeof AuthenticatedPainelRoute
+  '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
+  '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
+  '/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -86,7 +121,11 @@ export interface FileRoutesById {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
+  '/_authenticated/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
+  '/_authenticated/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
+  '/_authenticated/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -97,7 +136,11 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/$slug/pedido'
     | '/admin-precos'
+    | '/dashboard'
     | '/painel'
+    | '/configuracoes/convites'
+    | '/configuracoes/endereco'
+    | '/configuracoes/identificacao'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -106,7 +149,11 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/$slug/pedido'
     | '/admin-precos'
+    | '/dashboard'
     | '/painel'
+    | '/configuracoes/convites'
+    | '/configuracoes/endereco'
+    | '/configuracoes/identificacao'
   id:
     | '__root__'
     | '/'
@@ -116,7 +163,11 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/$slug/pedido'
     | '/_authenticated/admin-precos'
+    | '/_authenticated/dashboard'
     | '/_authenticated/painel'
+    | '/_authenticated/configuracoes/convites'
+    | '/_authenticated/configuracoes/endereco'
+    | '/_authenticated/configuracoes/identificacao'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -179,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminPrecosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/painel': {
       id: '/_authenticated/painel'
       path: '/painel'
@@ -186,17 +244,49 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPainelRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/configuracoes/convites': {
+      id: '/_authenticated/configuracoes/convites'
+      path: '/configuracoes/convites'
+      fullPath: '/configuracoes/convites'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesConvitesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/configuracoes/endereco': {
+      id: '/_authenticated/configuracoes/endereco'
+      path: '/configuracoes/endereco'
+      fullPath: '/configuracoes/endereco'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesEnderecoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/configuracoes/identificacao': {
+      id: '/_authenticated/configuracoes/identificacao'
+      path: '/configuracoes/identificacao'
+      fullPath: '/configuracoes/identificacao'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesIdentificacaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminPrecosRoute: typeof AuthenticatedAdminPrecosRoute
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
+  AuthenticatedConfiguracoesConvitesRoute: typeof AuthenticatedConfiguracoesConvitesRoute
+  AuthenticatedConfiguracoesEnderecoRoute: typeof AuthenticatedConfiguracoesEnderecoRoute
+  AuthenticatedConfiguracoesIdentificacaoRoute: typeof AuthenticatedConfiguracoesIdentificacaoRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminPrecosRoute: AuthenticatedAdminPrecosRoute,
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
+  AuthenticatedConfiguracoesConvitesRoute:
+    AuthenticatedConfiguracoesConvitesRoute,
+  AuthenticatedConfiguracoesEnderecoRoute:
+    AuthenticatedConfiguracoesEnderecoRoute,
+  AuthenticatedConfiguracoesIdentificacaoRoute:
+    AuthenticatedConfiguracoesIdentificacaoRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
