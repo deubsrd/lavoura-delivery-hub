@@ -7,6 +7,27 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  vite: {
+    plugins: [
+      {
+        name: "normalize-vite-supabase-env-access",
+        enforce: "pre",
+        transform(code, id) {
+          if (!id.endsWith("/src/integrations/supabase/client.ts")) return null;
+
+          return code
+            .replace(
+              "import.meta.env['VITE_SUPABASE_URL']",
+              "import.meta.env.VITE_SUPABASE_URL",
+            )
+            .replace(
+              "import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY']",
+              "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY",
+            );
+        },
+      },
+    ],
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
