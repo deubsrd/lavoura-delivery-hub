@@ -13,6 +13,65 @@ export type ResultadoDistancia =
 const MENSAGEM_PADRAO =
   "Não foi possível calcular a distância de entrega agora; a equipe vai confirmar o valor do frete com você.";
 
+export type ResultadoGeocodificacao =
+  | { ok: true; latitude: number; longitude: number; enderecoFormatado: string }
+  | { ok: false; mensagem: string };
+
+const MENSAGEM_GEOCODIFICACAO_PADRAO =
+  "Não foi possível localizar esse endereço agora. Confira se está completo (rua, número, bairro, cidade) e tente de novo.";
+
+/** Converte um endereço em texto para latitude/longitude via Google Geocoding API. */
+export async function geocodarEndereco(endereco: string): Promise<ResultadoGeocodificacao> {
+  const apiKey = process.env["GOOGLE_MAPS_API_KEY"];
+  if (!apiKey) {
+    return {
+      ok: false,
+      mensagem: "Cálculo de localização indisponível: GOOGLE_MAPS_API_KEY não configurada.",
+    };
+  }
+
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("address", endereco);
+  url.searchParams.set("key", apiKey);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.error(`[google-maps] HTTP ${response.status} ao geocodificar endereço`);
+      return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
+    }
+
+    const json = (await response.json()) as {
+      status: string;
+      results?: {
+        formatted_address?: string;
+        geometry?: { location?: { lat: number; lng: number } };
+      }[];
+    };
+
+    const resultado = json.results?.[0];
+    const localizacao = resultado?.geometry?.location;
+    if (json.status !== "OK" || !resultado || !localizacao) {
+      console.error("[google-maps] geocodificação sem resultado utilizável", JSON.stringify(json));
+      return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
+    }
+
+    return {
+      ok: true,
+      latitude: localizacao.lat,
+      longitude: localizacao.lng,
+      enderecoFormatado: resultado.formatted_address ?? endereco,
+    };
+  } catch (err) {
+    console.error("[google-maps] falha ao chamar Geocoding API", err);
+    return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
+  }
+}
+
 export async function calcularDistanciaKm(params: {
   origemLatitude: number | null;
   origemLongitude: number | null;
