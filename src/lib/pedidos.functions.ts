@@ -138,6 +138,10 @@ const resumoInputSchema = z.object({
   quantidade_cestos: z.number().int().min(1).max(50),
   tipo_servico: z.enum(["busca", "entrega", "busca_e_entrega"]),
   ...enderecoBase,
+  mesmo_endereco_entrega: z.boolean().optional().nullable(),
+  rua_entrega: z.string().trim().max(160).optional().nullable(),
+  numero_entrega: z.string().trim().max(20).optional().nullable(),
+  bairro_entrega: z.string().trim().max(120).optional().nullable(),
   usar_proximo_dia_util: z.boolean().optional(),
 });
 
@@ -172,12 +176,42 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   const prazo = calcularPrazo(unidade, input.quantidade_cestos, baseDateTime);
   const proximoHorarioUtil = calcularProximoHorarioUtil(unidade, agora);
 
-  const enderecoDestino = `${input.rua}, ${input.numero} - ${input.bairro}, ${unidade.cidade}`;
-  const distancia = await calcularDistanciaKm({
+  // O valor do delivery é cobrado uma vez por "perna" do trajeto: só
+  // busca ou só entrega tem uma perna; busca_e_entrega tem duas — a
+  // mesma distância nas duas (mesmo endereço) ou distâncias diferentes
+  // se o endereço de entrega for outro. Evita geocodificar duas vezes
+  // quando o endereço é o mesmo (mais rápido e mais gentil com o limite
+  // de requisições do Nominatim).
+  const enderecoColeta = `${input.rua}, ${input.numero} - ${input.bairro}, ${unidade.cidade}`;
+  const distanciaColeta = await calcularDistanciaKm({
     origemLatitude: unidade.latitude,
     origemLongitude: unidade.longitude,
-    enderecoDestino,
+    enderecoDestino: enderecoColeta,
   });
+
+  const tipoPernaUnica: "coleta" | "entrega" = input.tipo_servico === "entrega" ? "entrega" : "coleta";
+  let pernas: { tipo: "coleta" | "entrega"; distanciaKm: number | null }[];
+  let deliveryMensagemErro: string | null = distanciaColeta.ok ? null : distanciaColeta.mensagem;
+
+  if (input.tipo_servico !== "busca_e_entrega") {
+    pernas = [{ tipo: tipoPernaUnica, distanciaKm: distanciaColeta.ok ? distanciaColeta.distanciaKm : null }];
+  } else {
+    const mesmoEndereco = input.mesmo_endereco_entrega ?? true;
+    let distanciaEntrega = distanciaColeta;
+    if (!mesmoEndereco && input.rua_entrega && input.numero_entrega && input.bairro_entrega) {
+      const enderecoEntrega = `${input.rua_entrega}, ${input.numero_entrega} - ${input.bairro_entrega}, ${unidade.cidade}`;
+      distanciaEntrega = await calcularDistanciaKm({
+        origemLatitude: unidade.latitude,
+        origemLongitude: unidade.longitude,
+        enderecoDestino: enderecoEntrega,
+      });
+      if (!distanciaEntrega.ok) deliveryMensagemErro = distanciaEntrega.mensagem;
+    }
+    pernas = [
+      { tipo: "coleta", distanciaKm: distanciaColeta.ok ? distanciaColeta.distanciaKm : null },
+      { tipo: "entrega", distanciaKm: distanciaEntrega.ok ? distanciaEntrega.distanciaKm : null },
+    ];
+  }
 
   const [{ data: precos }, { data: faixas }, { data: promocoes }] = await Promise.all([
     supabaseAdmin
@@ -201,7 +235,7 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
     faixas ?? [],
     promocoes ?? [],
     input.quantidade_cestos,
-    distancia.ok ? distancia.distanciaKm : null,
+    pernas,
     prazo.baseUsada,
   );
 
@@ -209,8 +243,8 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
     unidade,
     precoDetalhado: preco,
     resumo: {
-      distanciaKm: distancia.ok ? distancia.distanciaKm : null,
-      deliveryMensagemErro: distancia.ok ? null : distancia.mensagem,
+      distanciaKm: pernas[0]?.distanciaKm ?? null,
+      deliveryMensagemErro: preco.deliveryIndisponivel ? deliveryMensagemErro : null,
       foraDoHorario: prazo.foraDoHorario,
       baseUsadaIso: prazo.baseUsada.toISOString(),
       previstoIso: prazo.previsto.toISOString(),
@@ -298,6 +332,10 @@ export const criarPedido = createServerFn({ method: "POST" })
       bairro: data.bairro,
       complemento: data.complemento,
       referencia: data.referencia,
+      mesmo_endereco_entrega: data.mesmo_endereco_entrega,
+      rua_entrega: data.rua_entrega,
+      numero_entrega: data.numero_entrega,
+      bairro_entrega: data.bairro_entrega,
       usar_proximo_dia_util: data.usar_proximo_dia_util,
     });
 

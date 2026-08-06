@@ -128,6 +128,14 @@ export type PromocaoDiaSemana = {
   ativo: boolean;
 };
 
+/**
+ * Uma "perna" do trajeto do motoboy (coleta e/ou entrega). O valor do
+ * delivery é cobrado uma vez por perna — busca ou entrega isoladas têm
+ * uma perna, busca_e_entrega tem duas (mesma distância se o endereço de
+ * entrega for igual ao de coleta, ou distâncias diferentes senão).
+ */
+export type PernaDelivery = { tipo: "coleta" | "entrega"; distanciaKm: number | null };
+
 export type ItemDetalhamento = { rotulo: string; valor: number };
 
 export type ResumoPreco = {
@@ -142,30 +150,26 @@ export type ResumoPreco = {
   detalhamento: ItemDetalhamento[];
 };
 
+function buscarValorFaixa(faixas: FaixaDelivery[], distanciaKm: number): number | null {
+  const faixa = faixas
+    .filter((f) => f.distancia_ate_km >= distanciaKm)
+    .sort((a, b) => a.distancia_ate_km - b.distancia_ate_km)[0];
+  return faixa ? faixa.valor : null;
+}
+
+const ROTULO_PERNA: Record<PernaDelivery["tipo"], string> = { coleta: "coleta", entrega: "entrega" };
+
 export function calcularPreco(
   precos: ConfiguracaoPrecos,
   faixas: FaixaDelivery[],
   promocoes: PromocaoDiaSemana[],
   quantidadeCestos: number,
-  distanciaKm: number | null,
+  pernas: PernaDelivery[],
   dataBuscaParaPromocao: Date,
 ): ResumoPreco {
   const valorLavagem = quantidadeCestos * precos.valor_lavagem_por_cesto;
   const valorSecagem = quantidadeCestos * precos.valor_secagem_por_cesto;
   const valorAtendente = precos.valor_atendente_por_pedido;
-
-  let valorDelivery: number | null = null;
-  let deliveryIndisponivel = false;
-  if (distanciaKm !== null) {
-    const faixa = faixas
-      .filter((f) => f.distancia_ate_km >= distanciaKm)
-      .sort((a, b) => a.distancia_ate_km - b.distancia_ate_km)[0];
-    if (faixa) valorDelivery = faixa.valor;
-    else deliveryIndisponivel = true;
-  }
-
-  const diaSemana = diaSemanaLocal(dataBuscaParaPromocao);
-  const promo = promocoes.find((p) => p.ativo && p.dia_semana === diaSemana);
 
   const detalhamento: ItemDetalhamento[] = [
     {
@@ -178,11 +182,40 @@ export function calcularPreco(
     },
     { rotulo: "Serviço da atendente", valor: valorAtendente },
   ];
-  if (valorDelivery !== null) {
-    detalhamento.push({ rotulo: "Delivery", valor: valorDelivery });
+
+  // Cada perna do trajeto (coleta e/ou entrega) é cobrada separadamente,
+  // pela faixa de distância correspondente. Se qualquer perna não puder
+  // ser precificada (endereço não localizado), o delivery inteiro fica
+  // "a confirmar" em vez de mostrar um total parcial enganoso.
+  let valorDelivery: number | null = null;
+  let deliveryIndisponivel = false;
+  const valoresPernas: { tipo: PernaDelivery["tipo"]; distanciaKm: number; valor: number }[] = [];
+  for (const perna of pernas) {
+    if (perna.distanciaKm === null) {
+      deliveryIndisponivel = true;
+      continue;
+    }
+    const valor = buscarValorFaixa(faixas, perna.distanciaKm);
+    if (valor === null) {
+      deliveryIndisponivel = true;
+      continue;
+    }
+    valoresPernas.push({ tipo: perna.tipo, distanciaKm: perna.distanciaKm, valor });
+  }
+  if (!deliveryIndisponivel && valoresPernas.length === pernas.length && pernas.length > 0) {
+    valorDelivery = valoresPernas.reduce((soma, p) => soma + p.valor, 0);
+    for (const p of valoresPernas) {
+      detalhamento.push({
+        rotulo: `Delivery (${ROTULO_PERNA[p.tipo]}, ${p.distanciaKm.toFixed(1)} km)`,
+        valor: p.valor,
+      });
+    }
   } else if (deliveryIndisponivel) {
     detalhamento.push({ rotulo: "Delivery (fora da área de cobertura, a confirmar)", valor: 0 });
   }
+
+  const diaSemana = diaSemanaLocal(dataBuscaParaPromocao);
+  const promo = promocoes.find((p) => p.ativo && p.dia_semana === diaSemana);
 
   let valorDesconto = 0;
   let descontoDescricao: string | null = null;
