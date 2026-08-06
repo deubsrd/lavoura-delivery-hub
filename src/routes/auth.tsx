@@ -85,15 +85,6 @@ function AuthPage() {
       toast.error("Não foi possível validar o código de convite agora.");
       return;
     }
-    const { data: unidadeId, error: codigoErr } = await supabase.rpc(
-      "unidade_por_codigo_convite",
-      { codigo },
-    );
-    if (codigoErr || !unidadeId) {
-      setCarregando(false);
-      toast.error("Código de convite inválido. Confira com o responsável da sua unidade.");
-      return;
-    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
