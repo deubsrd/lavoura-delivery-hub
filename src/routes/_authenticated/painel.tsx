@@ -1,6 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import {
   AlertTriangle,
   ArrowRight,
@@ -8,6 +9,7 @@ import {
   MessageCircle,
   PackageCheck,
   Search,
+  Settings,
   Truck,
   X,
 } from "lucide-react";
@@ -15,15 +17,16 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { garantirVinculoAtendente } from "@/lib/atendentes.functions";
+import { notificarMudancaStatus } from "@/lib/pedidos.functions";
 import {
   FLUXO_STATUS,
-  HORARIO_LABEL,
   STATUS_LABEL,
   TIPO_SERVICO_LABEL,
   colunasParaTipo,
   enderecoResumido,
   estaAtrasado,
   formatarDataHora,
+  formatarMoeda,
   maskTelefone,
   statusAplicavel,
   tempoRelativo,
@@ -77,13 +80,15 @@ type Pedido = {
   referencia_entrega: string | null;
   quantidade_cestos: number;
   tipo_servico: TipoServico;
-  horario_preferido: "manha" | "tarde" | "sem_preferencia";
   observacoes: string | null;
   status: PedidoStatus;
   motivo_cancelamento: string | null;
   motoboy_nome: string | null;
   data_pedido: string;
   data_prevista_retorno: string | null;
+  distancia_km: number | null;
+  desconto_descricao: string | null;
+  valor_total: number | null;
 };
 
 const COLUNAS: PedidoStatus[] = [...FLUXO_STATUS, "cancelado"];
@@ -91,6 +96,7 @@ const COLUNAS: PedidoStatus[] = [...FLUXO_STATUS, "cancelado"];
 function PainelPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const notificarStatus = useServerFn(notificarMudancaStatus);
 
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<PedidoStatus | "">("");
@@ -201,6 +207,13 @@ function PainelPage() {
     toast.success(`Pedido movido para “${STATUS_LABEL[novo]}”.`);
     queryClient.invalidateQueries({ queryKey: ["pedidos"] });
     queryClient.invalidateQueries({ queryKey: ["historico", pedido.id] });
+
+    if (novo === "pronto" || novo === "entregue") {
+      notificarStatus({ data: { pedidoId: pedido.id, status: novo } }).catch(() => {
+        // Falha na notificação não deve incomodar a atendente; o resultado
+        // já fica registrado em notificacoes_pedido para auditoria depois.
+      });
+    }
   }
 
   async function salvarMotoboy(pedido: Pedido, nome: string) {
@@ -242,14 +255,28 @@ function PainelPage() {
               {unidade ? `${unidade.nome} · ${unidade.cidade}` : "Painel de pedidos"}
             </h1>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={sair}
-            className="text-primary-foreground hover:bg-primary-foreground/10"
-          >
-            <LogOut className="size-4" /> Sair
-          </Button>
+          <div className="flex items-center gap-1">
+            {atendente.data?.role === "admin" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+                className="text-primary-foreground hover:bg-primary-foreground/10"
+              >
+                <Link to="/admin-precos">
+                  <Settings className="size-4" /> Preços
+                </Link>
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={sair}
+              className="text-primary-foreground hover:bg-primary-foreground/10"
+            >
+              <LogOut className="size-4" /> Sair
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -369,8 +396,7 @@ function PainelPage() {
                 <DialogTitle className="text-3xl">{detalhe.nome_completo}</DialogTitle>
                 <DialogDescription>
                   {TIPO_SERVICO_LABEL[detalhe.tipo_servico]} · {detalhe.quantidade_cestos}{" "}
-                  {detalhe.quantidade_cestos === 1 ? "cesto" : "cestos"} ·{" "}
-                  {HORARIO_LABEL[detalhe.horario_preferido]}
+                  {detalhe.quantidade_cestos === 1 ? "cesto" : "cestos"}
                 </DialogDescription>
               </DialogHeader>
 
@@ -419,6 +445,22 @@ function PainelPage() {
                   <div>
                     <p className="font-medium">Observações</p>
                     <p className="text-muted-foreground">{detalhe.observacoes}</p>
+                  </div>
+                ) : null}
+
+                {detalhe.valor_total !== null ? (
+                  <div className="rounded-lg border p-3 text-xs">
+                    <p className="mb-1 font-medium text-sm">
+                      Total estimado: {formatarMoeda(detalhe.valor_total)}
+                    </p>
+                    {detalhe.distancia_km !== null ? (
+                      <p className="text-muted-foreground">
+                        Distância de delivery: {detalhe.distancia_km.toFixed(1)} km
+                      </p>
+                    ) : null}
+                    {detalhe.desconto_descricao ? (
+                      <p className="text-muted-foreground">{detalhe.desconto_descricao}</p>
+                    ) : null}
                   </div>
                 ) : null}
 
