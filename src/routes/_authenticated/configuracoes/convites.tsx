@@ -5,6 +5,7 @@ import { KeyRound } from "lucide-react";
 
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
+import { PaginaHeader } from "@/components/pagina-header";
 import { obterConviteUnidade } from "@/lib/unidade.functions";
 
 export const Route = createFileRoute("/_authenticated/configuracoes/convites")({
@@ -24,7 +25,7 @@ function ConvitesPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-3 px-5 py-8">
-      <h1 className="text-3xl">Convite da unidade</h1>
+      <PaginaHeader titulo="Convite da unidade" />
       <SecaoConvite />
     </main>
   );

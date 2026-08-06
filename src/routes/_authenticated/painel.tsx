@@ -39,6 +39,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Dialog,
   DialogContent,
@@ -246,11 +247,16 @@ function PainelPage() {
       <header className="sticky top-0 z-20 border-b bg-primary px-4 py-3 text-primary-foreground">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
           <div className="min-w-0">
-            <img
-              src="/lavoura-logo-branco.svg"
-              alt="Lavoura Lavanderia Self Service"
-              className="h-6 w-auto"
-            />
+            <div className="flex items-center gap-2">
+              {atendente.data?.role === "admin" ? (
+                <SidebarTrigger className="-ml-1.5 text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground" />
+              ) : null}
+              <img
+                src="/lavoura-logo-branco.svg"
+                alt="Lavoura Lavanderia Self Service"
+                className="h-6 w-auto"
+              />
+            </div>
             <h1 className="mt-1 truncate text-xl leading-tight sm:text-2xl">
               {unidade ? `${unidade.nome} · ${unidade.cidade}` : "Painel de pedidos"}
             </h1>
