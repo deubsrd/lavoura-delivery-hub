@@ -2,8 +2,10 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
 
 import { supabase } from "@/integrations/supabase/client";
+import { validarCodigoConvite } from "@/lib/atendentes.functions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -34,6 +36,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const validarConvite = useServerFn(validarCodigoConvite);
   const [modo, setModo] = useState<"entrar" | "cadastrar">("entrar");
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
@@ -70,17 +73,16 @@ function AuthPage() {
       return;
     }
 
-    // Checagem no cliente só para dar feedback rápido; a validação que
-    // realmente importa acontece de novo no servidor ao vincular a
-    // atendente (garantirVinculoAtendente), então nenhum client não
-    // confiável decide sozinho se o código é válido.
-    const { data: unidadeId, error: codigoErr } = await supabase.rpc(
-      "unidade_por_codigo_convite",
-      { codigo },
-    );
-    if (codigoErr || !unidadeId) {
+    try {
+      const valido = await validarConvite({ data: { codigo } });
+      if (!valido) {
+        setCarregando(false);
+        toast.error("Código de convite inválido. Confira o código com o responsável da sua unidade.");
+        return;
+      }
+    } catch {
       setCarregando(false);
-      toast.error("Código de convite inválido. Confira com o responsável da sua unidade.");
+      toast.error("Não foi possível validar o código de convite agora.");
       return;
     }
 
