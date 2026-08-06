@@ -20,7 +20,6 @@ import {
   SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
-  SidebarTrigger,
 } from "@/components/ui/sidebar";
 
 const CAMINHOS_CONFIGURACOES = [
@@ -126,9 +125,6 @@ export function AppShell() {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <div className="sticky top-0 z-30 flex items-center border-b bg-background px-2 py-1.5">
-          <SidebarTrigger />
-        </div>
         <Outlet />
       </SidebarInset>
     </SidebarProvider>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { garantirVinculoAtendente } from "@/lib/atendentes.functions";
+import { PaginaHeader } from "@/components/pagina-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -141,7 +142,7 @@ function AdminPrecosPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-10 px-5 py-8">
-      <h1 className="text-3xl">Preços e promoções</h1>
+      <PaginaHeader titulo="Preços e promoções" />
 
       <SecaoPrecosBase
         unidadeId={unidadeId!}

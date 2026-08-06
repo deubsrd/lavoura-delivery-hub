@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
+import { PaginaHeader } from "@/components/pagina-header";
 import { obterEnderecoUnidade, salvarEnderecoUnidade } from "@/lib/unidade.functions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +30,7 @@ function EnderecoPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-3 px-5 py-8">
-      <h1 className="text-3xl">Endereço da unidade</h1>
+      <PaginaHeader titulo="Endereço da unidade" />
       <SecaoEndereco />
     </main>
   );

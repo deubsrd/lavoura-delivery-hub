@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
+import { PaginaHeader } from "@/components/pagina-header";
 import { salvarIdentificacaoUnidade } from "@/lib/unidade.functions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,7 +33,7 @@ function IdentificacaoPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-3 px-5 py-8">
-      <h1 className="text-3xl">Identificação da unidade</h1>
+      <PaginaHeader titulo="Identificação da unidade" />
       <SecaoIdentificacao unidadeId={atendente.unidadeId!} />
     </main>
   );

@@ -6,6 +6,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
+import { PaginaHeader } from "@/components/pagina-header";
 import { TIPO_SERVICO_LABEL, formatarMoeda, type TipoServico } from "@/lib/lavoura";
 import {
   ChartContainer,
@@ -107,7 +108,7 @@ function SecaoDashboard() {
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-5 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl">Dashboard</h1>
+        <PaginaHeader titulo="Dashboard" />
         <select
           value={periodo}
           onChange={(e) => setPeriodo(e.target.value as "30" | "90" | "all")}
