@@ -20,10 +20,16 @@ dist-ssr
 .wrangler/
 .dev.vars
 
-# Environment variables (never commit real secrets)
-.env
-.env.*
-!.env.example
+# Environment variables. .env IS tracked on purpose (see .env.example
+# and README): Lovable Cloud's Secrets panel refuses VITE_-prefixed
+# keys ("build-time browser values should be defined in .env files,
+# not in secrets"), so the Vite/Supabase publishable values that need
+# to be baked into the client bundle have to live in a committed .env.
+# They're publishable/anon keys, safe to expose to the browser. Real
+# secrets (ADMIN_SECRET, WHATSAPP_WEBHOOK_URL, the Supabase service
+# role key) live in Lovable Cloud's Secrets panel instead, never here.
+.env.local
+.env.*.local
 
 # Editor directories and files
 .vscode/*
