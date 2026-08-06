@@ -39,10 +39,10 @@ export const obterEnderecoUnidade = createServerFn({ method: "GET" })
   });
 
 /**
- * Salva o endereço da unidade e geocodifica automaticamente (Google Maps)
- * para preencher latitude/longitude — usadas como origem no cálculo de
- * distância de delivery. A atendente nunca precisa lidar com coordenadas
- * diretamente.
+ * Salva o endereço da unidade e geocodifica automaticamente (OpenStreetMap
+ * Nominatim) para preencher latitude/longitude — usadas como origem no
+ * cálculo de distância de delivery. A atendente nunca precisa lidar com
+ * coordenadas diretamente.
  */
 export const salvarEnderecoUnidade = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -72,4 +72,52 @@ export const salvarEnderecoUnidade = createServerFn({ method: "POST" })
       latitude: geocodificado.latitude,
       longitude: geocodificado.longitude,
     };
+  });
+
+export type IdentificacaoUnidade = { nome: string; cidade: string };
+
+/**
+ * Atualiza nome/cidade da unidade. Não existe grant de UPDATE em
+ * `unidades` para `authenticated`, por isso passa por supabaseAdmin —
+ * mesmo padrão do endereço acima. O slug não é editável aqui: é usado na
+ * URL pública do formulário de pedido, mudar quebraria links já
+ * compartilhados com clientes.
+ */
+export const salvarIdentificacaoUnidade = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        nome: z.string().trim().min(2, "Informe o nome da unidade").max(120),
+        cidade: z.string().trim().min(2, "Informe a cidade").max(120),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data, context }): Promise<IdentificacaoUnidade> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("unidades")
+      .update({ nome: data.nome, cidade: data.cidade })
+      .eq("id", unidadeId);
+    if (error) throw new Error(error.message);
+    return { nome: data.nome, cidade: data.cidade };
+  });
+
+export type CodigoConviteUnidade = { codigo_convite: string };
+
+/** Código de convite da própria unidade (coluna não é selecionável direto pelo client, nem por admin). */
+export const obterConviteUnidade = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<CodigoConviteUnidade> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("unidades")
+      .select("codigo_convite")
+      .eq("id", unidadeId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Unidade não encontrada.");
+    return data;
   });
