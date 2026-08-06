@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AdminConvitesRouteImport } from './routes/admin-convites'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as SlugPedidoRouteImport } from './routes/$slug.pedido'
 import { Route as AuthenticatedAdminPrecosRouteImport } from './routes/_authenticated/admin-precos'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
@@ -36,6 +37,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RedefinirSenhaRoute = RedefinirSenhaRouteImport.update({
+  id: '/redefinir-senha',
+  path: '/redefinir-senha',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SlugPedidoRoute = SlugPedidoRouteImport.update({
   id: '/$slug/pedido',
   path: '/$slug/pedido',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin-convites': typeof AdminConvitesRoute
   '/auth': typeof AuthRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/painel': typeof AuthenticatedPainelRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-convites': typeof AdminConvitesRoute
   '/auth': typeof AuthRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/painel': typeof AuthenticatedPainelRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/admin-convites': typeof AdminConvitesRoute
   '/auth': typeof AuthRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
@@ -85,6 +94,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-convites'
     | '/auth'
+    | '/redefinir-senha'
     | '/$slug/pedido'
     | '/admin-precos'
     | '/painel'
@@ -93,6 +103,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-convites'
     | '/auth'
+    | '/redefinir-senha'
     | '/$slug/pedido'
     | '/admin-precos'
     | '/painel'
@@ -102,6 +113,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/admin-convites'
     | '/auth'
+    | '/redefinir-senha'
     | '/$slug/pedido'
     | '/_authenticated/admin-precos'
     | '/_authenticated/painel'
@@ -112,6 +124,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AdminConvitesRoute: typeof AdminConvitesRoute
   AuthRoute: typeof AuthRoute
+  RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   SlugPedidoRoute: typeof SlugPedidoRoute
 }
 
@@ -143,6 +156,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/redefinir-senha': {
+      id: '/redefinir-senha'
+      path: '/redefinir-senha'
+      fullPath: '/redefinir-senha'
+      preLoaderRoute: typeof RedefinirSenhaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$slug/pedido': {
@@ -187,6 +207,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AdminConvitesRoute: AdminConvitesRoute,
   AuthRoute: AuthRoute,
+  RedefinirSenhaRoute: RedefinirSenhaRoute,
   SlugPedidoRoute: SlugPedidoRoute,
 }
 export const routeTree = rootRouteImport

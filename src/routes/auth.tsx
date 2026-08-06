@@ -45,6 +45,11 @@ function AuthPage() {
   const [carregando, setCarregando] = useState(false);
   const [avisoEmail, setAvisoEmail] = useState(false);
 
+  const [recuperando, setRecuperando] = useState(false);
+  const [emailRecuperacao, setEmailRecuperacao] = useState("");
+  const [linkRecuperacaoEnviado, setLinkRecuperacaoEnviado] = useState(false);
+  const [enviandoRecuperacao, setEnviandoRecuperacao] = useState(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) navigate({ to: "/painel", replace: true });
@@ -77,7 +82,9 @@ function AuthPage() {
       const valido = await validarConvite({ data: { codigo } });
       if (!valido) {
         setCarregando(false);
-        toast.error("Código de convite inválido. Confira o código com o responsável da sua unidade.");
+        toast.error(
+          "Código de convite inválido. Confira o código com o responsável da sua unidade.",
+        );
         return;
       }
     } catch {
@@ -104,6 +111,80 @@ function AuthPage() {
       return;
     }
     navigate({ to: "/painel", replace: true });
+  }
+
+  async function onSubmitRecuperacao(event: React.FormEvent) {
+    event.preventDefault();
+    setEnviandoRecuperacao(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(emailRecuperacao, {
+      redirectTo: window.location.origin + "/redefinir-senha",
+    });
+    setEnviandoRecuperacao(false);
+    if (error) {
+      toast.error("Não foi possível enviar o link de recuperação agora. Tente novamente.");
+      return;
+    }
+    setLinkRecuperacaoEnviado(true);
+  }
+
+  if (recuperando) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-primary px-5 py-10">
+        <div className="w-full max-w-sm rounded-2xl bg-card p-7 shadow-card">
+          <img
+            src="/lavoura-logo-verde.svg"
+            alt="Lavoura Lavanderia Self Service"
+            className="h-9 w-auto"
+          />
+          <h1 className="mt-2 text-3xl">Recuperar senha</h1>
+
+          {linkRecuperacaoEnviado ? (
+            <p className="mt-6 rounded-lg bg-secondary p-3 text-sm">
+              Se esse e-mail tiver uma conta cadastrada, enviamos um link para redefinir a senha.
+              Confira sua caixa de entrada (e o spam).
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Informe seu e-mail para receber um link de redefinição de senha.
+              </p>
+              <form onSubmit={onSubmitRecuperacao} className="mt-5 space-y-4">
+                <div className="space-y-1.5">
+                  <Label>E-mail</Label>
+                  <Input
+                    type="email"
+                    value={emailRecuperacao}
+                    onChange={(e) => setEmailRecuperacao(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={enviandoRecuperacao}
+                  className="h-11 w-full bg-accent text-accent-foreground hover:bg-accent/90"
+                >
+                  {enviandoRecuperacao ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Enviar link de recuperação
+                </Button>
+              </form>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setRecuperando(false);
+              setLinkRecuperacaoEnviado(false);
+              setEmailRecuperacao("");
+            }}
+            className="mt-6 block w-full text-center text-xs text-muted-foreground underline"
+          >
+            Voltar para o acesso
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -181,6 +262,18 @@ function AuthPage() {
                   minLength={6}
                   required
                 />
+                {modo === "entrar" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecuperando(true);
+                      setEmailRecuperacao(email);
+                    }}
+                    className="text-xs text-muted-foreground underline"
+                  >
+                    Esqueci minha senha
+                  </button>
+                ) : null}
               </div>
               <Button
                 type="submit"
