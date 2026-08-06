@@ -73,10 +73,18 @@ function AuthPage() {
       return;
     }
 
-    // Checagem no cliente só para dar feedback rápido; a validação que
-    // realmente importa acontece de novo no servidor ao vincular a
-    // atendente (garantirVinculoAtendente), então nenhum client não
-    // confiável decide sozinho se o código é válido.
+    try {
+      const valido = await validarConvite({ data: { codigo } });
+      if (!valido) {
+        setCarregando(false);
+        toast.error("Código de convite inválido. Confira o código com o responsável da sua unidade.");
+        return;
+      }
+    } catch {
+      setCarregando(false);
+      toast.error("Não foi possível validar o código de convite agora.");
+      return;
+    }
     const { data: unidadeId, error: codigoErr } = await supabase.rpc(
       "unidade_por_codigo_convite",
       { codigo },
