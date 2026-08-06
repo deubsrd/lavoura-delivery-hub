@@ -100,26 +100,42 @@ function PainelPage() {
   const [cancelando, setCancelando] = useState<Pedido | null>(null);
   const [motivo, setMotivo] = useState("");
 
+  const [periodo, setPeriodo] = useState<"30" | "90" | "all">("30");
+
   const atendente = useQuery({
     queryKey: ["atendente"],
     queryFn: async () => {
       await garantirVinculoAtendente();
-      const { data, error } = await supabase
+      const { data: at, error } = await supabase
         .from("atendentes")
-        .select("id, nome, unidade_id, unidades(nome, cidade, prazo_padrao_horas)")
+        .select("id, nome, unidade_id, role")
         .maybeSingle();
       if (error) throw error;
-      return data;
+      if (!at) return null;
+
+      const { data: unidade } = await supabase
+        .from("unidades_publico")
+        .select("nome, cidade, prazo_padrao_horas")
+        .eq("id", at.unidade_id)
+        .maybeSingle();
+
+      return { ...at, unidades: unidade ?? null };
     },
   });
 
   const pedidos = useQuery({
-    queryKey: ["pedidos"],
+    queryKey: ["pedidos", periodo],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("pedidos_delivery")
         .select("*")
         .order("data_pedido", { ascending: false });
+      if (periodo !== "all") {
+        const dias = periodo === "30" ? 30 : 90;
+        const corte = new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
+        query = query.gte("data_pedido", corte);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return (data ?? []) as unknown as Pedido[];
     },
@@ -255,6 +271,16 @@ function PainelPage() {
           />
         </div>
         <div className="flex flex-wrap gap-2">
+          <select
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value as "30" | "90" | "all")}
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+            title="Período de pedidos carregados"
+          >
+            <option value="30">Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="all">Todo o histórico</option>
+          </select>
           <select
             value={filtroStatus}
             onChange={(e) => setFiltroStatus(e.target.value as PedidoStatus | "")}
