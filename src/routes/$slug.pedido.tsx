@@ -166,14 +166,21 @@ function PedidoPage() {
   const buscaCpfMutation = useMutation({
     mutationFn: (cpfLimpo: string) => buscarCliente({ data: { slug: unidade.slug, cpf: cpfLimpo } }),
     onSuccess: (cliente) => {
-      if (cliente) {
+      if (cliente && cliente.ultima_rua) {
         setClienteEncontrado(cliente);
         setFase1("confirmar-endereco");
+      } else if (cliente) {
+        // Cliente já cadastrado, mas sem endereço de pedido anterior.
+        setClienteEncontrado(cliente);
+        setNome(cliente.nome_completo);
+        setTelefone(maskTelefone(cliente.telefone));
+        ir(3);
       } else {
         setClienteEncontrado(null);
         ir(2);
       }
     },
+
     onError: () => toast.error("Não foi possível verificar o CPF. Tente novamente."),
   });
 
