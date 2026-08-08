@@ -79,11 +79,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lavoura — Gestão de Delivery de Lavanderia" },
+      { title: "Lavoura — Lavanderia autosserviço com busca e entrega" },
       {
         name: "description",
         content:
-          "Lavoura: peça busca e entrega das suas roupas na lavanderia self-service e acompanhe os pedidos pelo painel da unidade.",
+          "Peça a busca e entrega das suas roupas na Lavoura. Formulário rápido, prazo transparente e acompanhamento do pedido pela unidade.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
