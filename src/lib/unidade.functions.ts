@@ -2,10 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-type ContextoAuth = { supabase: import("@supabase/supabase-js").SupabaseClient; userId: string };
+export type ContextoAuth = { supabase: import("@supabase/supabase-js").SupabaseClient; userId: string };
 
 /** Confere que o usuário logado é admin da própria unidade; devolve o unidade_id. */
-async function exigirAdmin(context: ContextoAuth): Promise<{ unidadeId: string }> {
+export async function exigirAdmin(context: ContextoAuth): Promise<{ unidadeId: string }> {
   const { data, error } = await context.supabase
     .from("atendentes")
     .select("unidade_id, role")
