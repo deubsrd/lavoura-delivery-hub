@@ -215,6 +215,54 @@ export type Database = {
           },
         ]
       }
+      horarios_unidade: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          dia_semana: number
+          hora_abertura: string
+          hora_fechamento: string
+          id: string
+          unidade_id: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          dia_semana: number
+          hora_abertura?: string
+          hora_fechamento?: string
+          id?: string
+          unidade_id: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          dia_semana?: number
+          hora_abertura?: string
+          hora_fechamento?: string
+          id?: string
+          unidade_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "horarios_unidade_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "unidades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "horarios_unidade_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "unidades_publico"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notificacoes_pedido: {
         Row: {
           created_at: string
