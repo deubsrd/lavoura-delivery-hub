@@ -764,8 +764,6 @@ export const criarPedido = createServerFn({ method: "POST" })
     const { notificarStatusPedido } = await import("./notificacoes.server");
     await notificarStatusPedido({
       pedidoId: pedido.id,
-      unidadeId: unidade.id,
-      clienteId: cliente.id,
       telefone: cliente.telefone,
       nome: cliente.nome_completo,
       status: "recebido",
@@ -786,7 +784,7 @@ export const criarPedido = createServerFn({ method: "POST" })
  * Dispara a notificação de mudança de status (pronto/entregue) a partir do
  * painel. Confere que o pedido pertence à unidade da atendente logada antes
  * de notificar — o client já faz a mudança de status via RLS, esta função
- * só cuida do efeito colateral de enfileirar a mensagem de WhatsApp.
+ * só cuida do efeito colateral do webhook.
  */
 export const notificarMudancaStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -796,7 +794,7 @@ export const notificarMudancaStatus = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: pedido, error } = await context.supabase
       .from("pedidos_delivery")
-      .select("id, unidade_id, cliente_id, nome_completo, telefone")
+      .select("id, nome_completo, telefone")
       .eq("id", data.pedidoId)
       .maybeSingle();
     if (error || !pedido) return { ok: false };
@@ -804,8 +802,6 @@ export const notificarMudancaStatus = createServerFn({ method: "POST" })
     const { notificarStatusPedido } = await import("./notificacoes.server");
     await notificarStatusPedido({
       pedidoId: pedido.id,
-      unidadeId: pedido.unidade_id,
-      clienteId: pedido.cliente_id,
       telefone: pedido.telefone,
       nome: pedido.nome_completo,
       status: data.status,

@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { KanbanSquare, LayoutDashboard, LogOut, MessageCircle, Settings2, Users } from "lucide-react";
+import { KanbanSquare, LayoutDashboard, LogOut, Settings2, Users } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
@@ -28,8 +28,6 @@ const CAMINHOS_CONFIGURACOES = [
   "/admin-precos",
   "/configuracoes/convites",
 ];
-
-const CAMINHOS_WHATSAPP = ["/whatsapp/conexao", "/whatsapp/conversas"];
 
 /**
  * Shell da área autenticada. Atendentes sem role admin veem exatamente o
@@ -87,23 +85,6 @@ export function AppShell() {
                       <Users /> Clientes
                     </Link>
                   </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton isActive={CAMINHOS_WHATSAPP.includes(pathname)}>
-                    <MessageCircle /> WhatsApp
-                  </SidebarMenuButton>
-                  <SidebarMenuSub>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton asChild isActive={pathname === "/whatsapp/conexao"}>
-                        <Link to="/whatsapp/conexao">Conexão</Link>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton asChild isActive={pathname === "/whatsapp/conversas"}>
-                        <Link to="/whatsapp/conversas">Conversas</Link>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  </SidebarMenuSub>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton isActive={CAMINHOS_CONFIGURACOES.includes(pathname)}>

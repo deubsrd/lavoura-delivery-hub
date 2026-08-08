@@ -657,131 +657,6 @@ export type Database = {
         }
         Relationships: []
       }
-      whatsapp_conexoes: {
-        Row: {
-          comando: Database["public"]["Enums"]["whatsapp_comando"]
-          conectado_em: string | null
-          erro: string | null
-          id: string
-          qr_atual: string | null
-          status: Database["public"]["Enums"]["whatsapp_status"]
-          telefone_conectado: string | null
-          unidade_id: string
-          updated_at: string
-        }
-        Insert: {
-          comando?: Database["public"]["Enums"]["whatsapp_comando"]
-          conectado_em?: string | null
-          erro?: string | null
-          id?: string
-          qr_atual?: string | null
-          status?: Database["public"]["Enums"]["whatsapp_status"]
-          telefone_conectado?: string | null
-          unidade_id: string
-          updated_at?: string
-        }
-        Update: {
-          comando?: Database["public"]["Enums"]["whatsapp_comando"]
-          conectado_em?: string | null
-          erro?: string | null
-          id?: string
-          qr_atual?: string | null
-          status?: Database["public"]["Enums"]["whatsapp_status"]
-          telefone_conectado?: string | null
-          unidade_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "whatsapp_conexoes_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: true
-            referencedRelation: "unidades"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "whatsapp_conexoes_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: true
-            referencedRelation: "unidades_publico"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      whatsapp_mensagens: {
-        Row: {
-          cliente_id: string | null
-          created_at: string
-          direcao: Database["public"]["Enums"]["mensagem_direcao"]
-          enviado_em: string | null
-          erro: string | null
-          id: string
-          origem: Database["public"]["Enums"]["mensagem_origem"]
-          pedido_id: string | null
-          status: Database["public"]["Enums"]["mensagem_status"]
-          telefone: string
-          texto: string
-          unidade_id: string
-        }
-        Insert: {
-          cliente_id?: string | null
-          created_at?: string
-          direcao: Database["public"]["Enums"]["mensagem_direcao"]
-          enviado_em?: string | null
-          erro?: string | null
-          id?: string
-          origem?: Database["public"]["Enums"]["mensagem_origem"]
-          pedido_id?: string | null
-          status?: Database["public"]["Enums"]["mensagem_status"]
-          telefone: string
-          texto: string
-          unidade_id: string
-        }
-        Update: {
-          cliente_id?: string | null
-          created_at?: string
-          direcao?: Database["public"]["Enums"]["mensagem_direcao"]
-          enviado_em?: string | null
-          erro?: string | null
-          id?: string
-          origem?: Database["public"]["Enums"]["mensagem_origem"]
-          pedido_id?: string | null
-          status?: Database["public"]["Enums"]["mensagem_status"]
-          telefone?: string
-          texto?: string
-          unidade_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "whatsapp_mensagens_cliente_id_fkey"
-            columns: ["cliente_id"]
-            isOneToOne: false
-            referencedRelation: "clientes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "whatsapp_mensagens_pedido_id_fkey"
-            columns: ["pedido_id"]
-            isOneToOne: false
-            referencedRelation: "pedidos_delivery"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "whatsapp_mensagens_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: false
-            referencedRelation: "unidades"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "whatsapp_mensagens_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: false
-            referencedRelation: "unidades_publico"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
     }
     Functions: {
       minha_unidade_id: { Args: never; Returns: string }
@@ -796,9 +671,6 @@ export type Database = {
         | "atendente"
         | "delivery"
       atendente_role: "atendente" | "admin"
-      mensagem_direcao: "enviada" | "recebida"
-      mensagem_origem: "automatica" | "manual"
-      mensagem_status: "pendente" | "enviada" | "entregue" | "lida" | "falhou"
       pedido_status:
         | "recebido"
         | "motoboy_busca"
@@ -809,8 +681,6 @@ export type Database = {
         | "cancelado"
       tipo_desconto: "percentual" | "valor_fixo"
       tipo_servico: "busca" | "entrega" | "busca_e_entrega"
-      whatsapp_comando: "nenhum" | "conectar" | "desconectar"
-      whatsapp_status: "desconectado" | "conectando" | "conectado"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -946,9 +816,6 @@ export const Constants = {
         "delivery",
       ],
       atendente_role: ["atendente", "admin"],
-      mensagem_direcao: ["enviada", "recebida"],
-      mensagem_origem: ["automatica", "manual"],
-      mensagem_status: ["pendente", "enviada", "entregue", "lida", "falhou"],
       pedido_status: [
         "recebido",
         "motoboy_busca",
@@ -960,8 +827,6 @@ export const Constants = {
       ],
       tipo_desconto: ["percentual", "valor_fixo"],
       tipo_servico: ["busca", "entrega", "busca_e_entrega"],
-      whatsapp_comando: ["nenhum", "conectar", "desconectar"],
-      whatsapp_status: ["desconectado", "conectando", "conectado"],
     },
   },
 } as const

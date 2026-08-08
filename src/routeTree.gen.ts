@@ -22,8 +22,6 @@ import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedConfiguracoesConvitesRouteImport } from './routes/_authenticated/configuracoes/convites'
 import { Route as AuthenticatedConfiguracoesEnderecoRouteImport } from './routes/_authenticated/configuracoes/endereco'
 import { Route as AuthenticatedConfiguracoesIdentificacaoRouteImport } from './routes/_authenticated/configuracoes/identificacao'
-import { Route as AuthenticatedWhatsappConexaoRouteImport } from './routes/_authenticated/whatsapp/conexao'
-import { Route as AuthenticatedWhatsappConversasRouteImport } from './routes/_authenticated/whatsapp/conversas'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -93,18 +91,6 @@ const AuthenticatedConfiguracoesIdentificacaoRoute =
     path: '/configuracoes/identificacao',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedWhatsappConexaoRoute =
-  AuthenticatedWhatsappConexaoRouteImport.update({
-    id: '/whatsapp/conexao',
-    path: '/whatsapp/conexao',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedWhatsappConversasRoute =
-  AuthenticatedWhatsappConversasRouteImport.update({
-    id: '/whatsapp/conversas',
-    path: '/whatsapp/conversas',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -119,8 +105,6 @@ export interface FileRoutesByFullPath {
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
   '/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
-  '/whatsapp/conexao': typeof AuthenticatedWhatsappConexaoRoute
-  '/whatsapp/conversas': typeof AuthenticatedWhatsappConversasRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -135,8 +119,6 @@ export interface FileRoutesByTo {
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
   '/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
-  '/whatsapp/conexao': typeof AuthenticatedWhatsappConexaoRoute
-  '/whatsapp/conversas': typeof AuthenticatedWhatsappConversasRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -153,8 +135,6 @@ export interface FileRoutesById {
   '/_authenticated/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/_authenticated/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
   '/_authenticated/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
-  '/_authenticated/whatsapp/conexao': typeof AuthenticatedWhatsappConexaoRoute
-  '/_authenticated/whatsapp/conversas': typeof AuthenticatedWhatsappConversasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -171,8 +151,6 @@ export interface FileRouteTypes {
     | '/configuracoes/convites'
     | '/configuracoes/endereco'
     | '/configuracoes/identificacao'
-    | '/whatsapp/conexao'
-    | '/whatsapp/conversas'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -187,8 +165,6 @@ export interface FileRouteTypes {
     | '/configuracoes/convites'
     | '/configuracoes/endereco'
     | '/configuracoes/identificacao'
-    | '/whatsapp/conexao'
-    | '/whatsapp/conversas'
   id:
     | '__root__'
     | '/'
@@ -204,8 +180,6 @@ export interface FileRouteTypes {
     | '/_authenticated/configuracoes/convites'
     | '/_authenticated/configuracoes/endereco'
     | '/_authenticated/configuracoes/identificacao'
-    | '/_authenticated/whatsapp/conexao'
-    | '/_authenticated/whatsapp/conversas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -310,20 +284,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedConfiguracoesIdentificacaoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/whatsapp/conexao': {
-      id: '/_authenticated/whatsapp/conexao'
-      path: '/whatsapp/conexao'
-      fullPath: '/whatsapp/conexao'
-      preLoaderRoute: typeof AuthenticatedWhatsappConexaoRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/whatsapp/conversas': {
-      id: '/_authenticated/whatsapp/conversas'
-      path: '/whatsapp/conversas'
-      fullPath: '/whatsapp/conversas'
-      preLoaderRoute: typeof AuthenticatedWhatsappConversasRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
   }
 }
 
@@ -335,8 +295,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedConfiguracoesConvitesRoute: typeof AuthenticatedConfiguracoesConvitesRoute
   AuthenticatedConfiguracoesEnderecoRoute: typeof AuthenticatedConfiguracoesEnderecoRoute
   AuthenticatedConfiguracoesIdentificacaoRoute: typeof AuthenticatedConfiguracoesIdentificacaoRoute
-  AuthenticatedWhatsappConexaoRoute: typeof AuthenticatedWhatsappConexaoRoute
-  AuthenticatedWhatsappConversasRoute: typeof AuthenticatedWhatsappConversasRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -350,8 +308,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
     AuthenticatedConfiguracoesEnderecoRoute,
   AuthenticatedConfiguracoesIdentificacaoRoute:
     AuthenticatedConfiguracoesIdentificacaoRoute,
-  AuthenticatedWhatsappConexaoRoute: AuthenticatedWhatsappConexaoRoute,
-  AuthenticatedWhatsappConversasRoute: AuthenticatedWhatsappConversasRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
