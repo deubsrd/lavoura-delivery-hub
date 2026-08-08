@@ -600,7 +600,9 @@ export const criarPedido = createServerFn({ method: "POST" })
       cliente = novoCliente;
     }
 
-    // Proteção básica anti-spam: limite por IP e por telefone.
+    // Proteção básica anti-spam: só por IP — um cliente legítimo pode fazer
+    // vários pedidos seguidos (endereços diferentes, tipos de serviço
+    // diferentes, etc.), então não há limite por telefone.
     const quinzeMin = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     const { count: porIp } = await supabaseAdmin
       .from("pedidos_delivery")
@@ -611,15 +613,6 @@ export const criarPedido = createServerFn({ method: "POST" })
       throw new Error(
         "Muitos pedidos enviados deste dispositivo. Tente novamente em alguns minutos.",
       );
-    }
-
-    const { count: porTelefone } = await supabaseAdmin
-      .from("pedidos_delivery")
-      .select("id", { count: "exact", head: true })
-      .eq("telefone", cliente.telefone)
-      .gte("created_at", new Date(Date.now() - 3 * 60 * 1000).toISOString());
-    if ((porTelefone ?? 0) >= 1) {
-      throw new Error("Já recebemos um pedido com este telefone há poucos minutos.");
     }
 
     const agora = new Date();
