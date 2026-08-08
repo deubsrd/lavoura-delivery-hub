@@ -34,15 +34,14 @@ function Index() {
             Sua roupa lavada, dobrada e de volta em casa
           </h1>
           <p className="mt-5 text-base/relaxed opacity-90">
-            Rede de lavanderias self-service com serviço de busca e entrega por motoboy. Faça seu
-            pedido em menos de um minuto pelo celular.
+            Faça seu pedido em menos de um minuto pelo celular.
           </p>
           <Link
             to="/$slug/pedido"
             params={{ slug: "boa-vista" }}
             className="mt-8 inline-flex items-center gap-2 rounded-full bg-accent px-6 py-3 font-medium text-accent-foreground transition hover:opacity-90"
           >
-            <Truck className="size-5" /> Pedir busca e entrega
+            <Truck className="size-5" /> Pedir Delivery
           </Link>
         </div>
       </section>
@@ -64,7 +63,7 @@ function Index() {
             {
               icon: ShieldCheck,
               titulo: "Prazo combinado",
-              texto: "Você recebe a data prevista de retorno na confirmação do pedido.",
+              texto: "Você recebe o horário previsto de retorno na confirmação do pedido.",
             },
           ].map((item) => (
             <li
