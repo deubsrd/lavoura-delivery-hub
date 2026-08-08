@@ -133,6 +133,33 @@ export const criarClienteBasico = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export type PrecosBasePublico = {
+  valor_lavagem_por_cesto: number;
+  valor_secagem_por_cesto: number;
+  valor_atendente_por_pedido: number;
+};
+
+/**
+ * Preços base (lavagem/secagem por cesto + atendente fixo) de uma
+ * unidade, para a prévia de valor "ao vivo" na Etapa 4 do formulário
+ * público, antes de saber endereço/distância/promoção do dia. Só esses 3
+ * números — nada sensível, já é exatamente o que aparece no
+ * detalhamento da Etapa 5 pra todo mundo.
+ */
+export const obterPrecosBase = createServerFn({ method: "GET" })
+  .inputValidator((data: { slug: string }) => z.object({ slug: z.string().min(1).max(80) }).parse(data))
+  .handler(async ({ data }): Promise<PrecosBasePublico | null> => {
+    const unidade = await buscarUnidadeCompletaPorSlug(data.slug);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: precos, error } = await supabaseAdmin
+      .from("configuracao_precos")
+      .select("valor_lavagem_por_cesto, valor_secagem_por_cesto, valor_atendente_por_pedido")
+      .eq("unidade_id", unidade.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return precos;
+  });
+
 const resumoInputSchema = z.object({
   slug: z.string().min(1).max(80),
   quantidade_cestos: z.number().int().min(1).max(50),
