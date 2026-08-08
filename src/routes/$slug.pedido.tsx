@@ -1,6 +1,6 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, Clock, Loader2, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   criarClienteBasico,
   criarPedido,
   getUnidadeBySlug,
+  obterPrecosBase,
   type ClienteEncontrado,
   type ResumoPedido,
 } from "@/lib/pedidos.functions";
@@ -116,6 +117,16 @@ function PedidoPage() {
   const criarClienteFn = useServerFn(criarClienteBasico);
   const calcularResumoFn = useServerFn(calcularResumoPedido);
   const enviarPedidoFn = useServerFn(criarPedido);
+  const obterPrecosBaseFn = useServerFn(obterPrecosBase);
+
+  // Preços base (lavagem/secagem/atendente) buscados uma vez, pra mostrar
+  // uma prévia de valor "ao vivo" na Etapa 4 conforme a quantidade de
+  // cestos muda — sem round-trip ao servidor a cada clique. O valor final
+  // (com delivery e desconto do dia) só sai no resumo da Etapa 5.
+  const precosBase = useQuery({
+    queryKey: ["precos-base", unidade.slug],
+    queryFn: () => obterPrecosBaseFn({ data: { slug: unidade.slug } }),
+  });
 
   const [etapa, setEtapa] = useState<Etapa>(1);
   const [pilha, setPilha] = useState<Etapa[]>([]);
@@ -130,6 +141,17 @@ function PedidoPage() {
   const [coleta, setColeta] = useState<Endereco>(enderecoVazio);
   const [entrega, setEntrega] = useState<Endereco>(enderecoVazio);
   const [cestos, setCestos] = useState(1);
+
+  const estimativaCestos = useMemo(() => {
+    if (!precosBase.data) return null;
+    const lavagemSecagem =
+      (precosBase.data.valor_lavagem_por_cesto + precosBase.data.valor_secagem_por_cesto) * cestos;
+    return {
+      lavagemSecagem,
+      subtotal: lavagemSecagem + precosBase.data.valor_atendente_por_pedido,
+      atendente: precosBase.data.valor_atendente_por_pedido,
+    };
+  }, [precosBase.data, cestos]);
   const [tipo, setTipo] = useState<TipoServico | "">("");
   const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState<boolean | null>(null);
   const [observacoes, setObservacoes] = useState("");
@@ -511,6 +533,28 @@ function PedidoPage() {
                 </Button>
               </div>
             </Campo>
+
+            {estimativaCestos ? (
+              <div className="rounded-lg bg-secondary p-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    Lavagem + secagem ({cestos} {cestos === 1 ? "cesto" : "cestos"})
+                  </span>
+                  <span className="font-medium">{formatarMoeda(estimativaCestos.lavagemSecagem)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>+ Serviço da atendente</span>
+                  <span>{formatarMoeda(estimativaCestos.atendente)}</span>
+                </div>
+                <div className="mt-1 flex justify-between border-t pt-1 font-medium">
+                  <span>Subtotal (sem delivery)</span>
+                  <span>{formatarMoeda(estimativaCestos.subtotal)}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  O valor final, com delivery e possíveis descontos do dia, aparece no resumo.
+                </p>
+              </div>
+            ) : null}
 
             <Campo rotulo="Tipo de serviço" erro={erros["tipo"]}>
               <div className="grid gap-2">

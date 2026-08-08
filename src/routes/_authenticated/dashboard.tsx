@@ -8,6 +8,7 @@ import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
 import { PaginaHeader } from "@/components/pagina-header";
 import { TIPO_SERVICO_LABEL, formatarMoeda, type TipoServico } from "@/lib/lavoura";
+import { Input } from "@/components/ui/input";
 import {
   ChartContainer,
   ChartTooltip,
@@ -45,25 +46,80 @@ const CHART_CONFIG: ChartConfig = {
   vendas: { label: "Vendas", color: "var(--accent)" },
 };
 
+type Periodo = "hoje" | "ontem" | "este_mes" | "mes_passado" | "personalizado";
+
+const PERIODO_LABEL: Record<Periodo, string> = {
+  hoje: "Hoje",
+  ontem: "Ontem",
+  este_mes: "Este mês",
+  mes_passado: "Mês passado",
+  personalizado: "Personalizado",
+};
+
+function paraDataLocal(data: string): Date {
+  const partes = data.split("-").map(Number);
+  const [ano, mes, dia] = [partes[0] ?? 1970, partes[1] ?? 1, partes[2] ?? 1];
+  return new Date(ano, mes - 1, dia);
+}
+
+/** Início/fim (inclusive, hora local) do intervalo correspondente ao período escolhido. */
+function calcularIntervalo(
+  periodo: Periodo,
+  personalizado: { inicio: string; fim: string },
+): { inicio: Date; fim: Date } | null {
+  const hoje = new Date();
+  const inicioHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  const fimHoje = new Date(inicioHoje.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+  switch (periodo) {
+    case "hoje":
+      return { inicio: inicioHoje, fim: fimHoje };
+    case "ontem": {
+      const inicioOntem = new Date(inicioHoje.getTime() - 24 * 60 * 60 * 1000);
+      const fimOntem = new Date(inicioHoje.getTime() - 1);
+      return { inicio: inicioOntem, fim: fimOntem };
+    }
+    case "este_mes": {
+      const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      return { inicio, fim: fimHoje };
+    }
+    case "mes_passado": {
+      const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+      const fim = new Date(hoje.getFullYear(), hoje.getMonth(), 1).getTime() - 1;
+      return { inicio, fim: new Date(fim) };
+    }
+    case "personalizado": {
+      if (!personalizado.inicio || !personalizado.fim) return null;
+      const inicio = paraDataLocal(personalizado.inicio);
+      const fim = new Date(paraDataLocal(personalizado.fim).getTime() + 24 * 60 * 60 * 1000 - 1);
+      return { inicio, fim };
+    }
+  }
+}
+
 function SecaoDashboard() {
-  const [periodo, setPeriodo] = useState<"30" | "90" | "all">("30");
+  const [periodo, setPeriodo] = useState<Periodo>("hoje");
+  const [personalizado, setPersonalizado] = useState({ inicio: "", fim: "" });
+
+  const intervalo = useMemo(
+    () => calcularIntervalo(periodo, personalizado),
+    [periodo, personalizado],
+  );
 
   const pedidos = useQuery({
-    queryKey: ["pedidos-dashboard", periodo],
+    queryKey: ["pedidos-dashboard", periodo, personalizado.inicio, personalizado.fim],
     queryFn: async () => {
-      let query = supabase
+      if (!intervalo) return [] as PedidoDashboard[];
+      const { data, error } = await supabase
         .from("pedidos_delivery")
         .select("data_pedido, status, tipo_servico, valor_total, distancia_km")
+        .gte("data_pedido", intervalo.inicio.toISOString())
+        .lte("data_pedido", intervalo.fim.toISOString())
         .order("data_pedido", { ascending: true });
-      if (periodo !== "all") {
-        const dias = periodo === "30" ? 30 : 90;
-        const corte = new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
-        query = query.gte("data_pedido", corte);
-      }
-      const { data, error } = await query;
       if (error) throw error;
       return (data ?? []) as PedidoDashboard[];
     },
+    enabled: intervalo !== null,
   });
 
   const metricas = useMemo(() => {
@@ -109,18 +165,41 @@ function SecaoDashboard() {
     <main className="mx-auto max-w-4xl space-y-6 px-5 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PaginaHeader titulo="Dashboard" />
-        <select
-          value={periodo}
-          onChange={(e) => setPeriodo(e.target.value as "30" | "90" | "all")}
-          className="h-9 rounded-md border bg-background px-2 text-sm"
-        >
-          <option value="30">Últimos 30 dias</option>
-          <option value="90">Últimos 90 dias</option>
-          <option value="all">Todo o histórico</option>
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value as Periodo)}
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+          >
+            {(Object.keys(PERIODO_LABEL) as Periodo[]).map((p) => (
+              <option key={p} value={p}>
+                {PERIODO_LABEL[p]}
+              </option>
+            ))}
+          </select>
+          {periodo === "personalizado" ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={personalizado.inicio}
+                onChange={(e) => setPersonalizado((p) => ({ ...p, inicio: e.target.value }))}
+                className="h-9 w-[9.5rem] text-sm"
+              />
+              <span className="text-sm text-muted-foreground">até</span>
+              <Input
+                type="date"
+                value={personalizado.fim}
+                onChange={(e) => setPersonalizado((p) => ({ ...p, fim: e.target.value }))}
+                className="h-9 w-[9.5rem] text-sm"
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      {pedidos.isLoading ? (
+      {periodo === "personalizado" && !intervalo ? (
+        <p className="text-sm text-muted-foreground">Escolha as duas datas para ver os dados.</p>
+      ) : pedidos.isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
