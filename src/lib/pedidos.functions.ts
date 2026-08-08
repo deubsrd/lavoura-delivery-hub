@@ -462,27 +462,33 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
     ];
   }
 
-  const [{ data: precos }, { data: faixas }, { data: promocoes }] = await Promise.all([
-    supabaseAdmin
-      .from("configuracao_precos")
-      .select("valor_lavagem_por_cesto, valor_secagem_por_cesto, valor_atendente_por_pedido")
-      .eq("unidade_id", unidade.id)
-      .maybeSingle(),
-    supabaseAdmin
-      .from("faixas_delivery")
-      .select("distancia_ate_km, valor")
-      .eq("unidade_id", unidade.id),
-    supabaseAdmin
-      .from("promocoes_dia_semana")
-      .select("dia_semana, tipo_desconto, valor, aplica_em, ativo")
-      .eq("unidade_id", unidade.id),
-  ]);
+  const [{ data: precos }, { data: faixas }, { data: promocoes }, { data: precosPorHorario }] =
+    await Promise.all([
+      supabaseAdmin
+        .from("configuracao_precos")
+        .select("valor_lavagem_por_cesto, valor_secagem_por_cesto, valor_atendente_por_pedido")
+        .eq("unidade_id", unidade.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("faixas_delivery")
+        .select("distancia_ate_km, valor")
+        .eq("unidade_id", unidade.id),
+      supabaseAdmin
+        .from("promocoes_dia_semana")
+        .select("dia_semana, tipo_desconto, valor, aplica_em, ativo")
+        .eq("unidade_id", unidade.id),
+      supabaseAdmin
+        .from("precos_por_horario")
+        .select("dia_semana, hora_inicio, hora_fim, valor_cesto")
+        .eq("unidade_id", unidade.id),
+    ]);
   if (!precos) throw new Error("Preços não configurados para esta unidade. Contate o suporte.");
 
   const preco = calcularPreco(
     precos,
     faixas ?? [],
     promocoes ?? [],
+    precosPorHorario ?? [],
     input.quantidade_cestos,
     pernas,
     prazo.baseUsada,
