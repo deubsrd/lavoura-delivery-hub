@@ -195,6 +195,14 @@ export function formatarMoeda(valor: number): string {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Toda a rede opera no fuso America/Boa_Vista (UTC-4, sem horário de
+// verão) — mesma premissa assumida em pedido-calculo.server.ts. Sem fixar
+// o timeZone aqui, o horário exibido depende do fuso do dispositivo de
+// quem está olhando (atendente, admin), que na prática costuma ser
+// America/Sao_Paulo (UTC-3): um horário de coleta às 13h aparecia como
+// 14h pra quem tivesse o computador nesse fuso.
+const FUSO_UNIDADE = "America/Boa_Vista";
+
 export function formatarDataHora(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", {
     day: "2-digit",
@@ -202,6 +210,7 @@ export function formatarDataHora(iso: string): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: FUSO_UNIDADE,
   });
 }
 
