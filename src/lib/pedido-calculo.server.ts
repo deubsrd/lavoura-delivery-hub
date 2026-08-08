@@ -38,7 +38,7 @@ function minutosDoDiaLocal(data: Date): number {
   return local.getUTCHours() * 60 + local.getUTCMinutes();
 }
 
-function chaveDiaLocal(data: Date): string {
+export function chaveDiaLocal(data: Date): string {
   return paraLocal(data).toISOString().slice(0, 10);
 }
 
@@ -193,6 +193,26 @@ export function pedidoForaDoHorarioAgora(
 /** Intervalo mínimo entre coletas de uma mesma unidade (regra de negócio). */
 export const DURACAO_SLOT_COLETA_MINUTOS = 30;
 
+/**
+ * Capacidade máxima de cestos que a unidade processa por dia (soma de
+ * todos os pedidos com coleta nesse dia, não cancelados). Ao atingir esse
+ * total, o dia inteiro sai da grade oferecida — mesmo que ainda haja
+ * horários "vazios" (o gargalo é capacidade de processamento, não só
+ * intervalo entre coletas). Mesmo valor pra todo dia ativo; não há hoje
+ * configuração por unidade/dia para isso.
+ */
+export const CAPACIDADE_MAXIMA_CESTOS_POR_DIA = 10;
+
+/** O dia (identificado pela chave "YYYY-MM-DD" local) ainda comporta mais `quantidadeCestos`? */
+function diaTemCapacidade(
+  cestosPorDia: ReadonlyMap<string, number>,
+  diaChave: string,
+  quantidadeCestos: number,
+): boolean {
+  const jaOcupado = cestosPorDia.get(diaChave) ?? 0;
+  return jaOcupado + quantidadeCestos <= CAPACIDADE_MAXIMA_CESTOS_POR_DIA;
+}
+
 /** "13:30:00" -> "13:30" (formato usado nos slots devolvidos ao client). */
 function horaLocalDeData(data: Date): string {
   const local = paraLocal(data);
@@ -276,10 +296,13 @@ export function gerarGradeColeta(
 
 /**
  * Grade de coleta realmente oferecível ao cliente: a grade crua acima,
- * descontando (a) horários já ocupados por outro pedido da mesma unidade
- * (`ocupados`, em epoch ms — pedidos cancelados não contam, ver
- * `buscarHorariosOcupados` em pedidos.functions.ts) e (b) horários que não
- * dariam tempo de terminar o ciclo antes do fechamento do dia.
+ * descontando (a) dias que já bateram a capacidade máxima de cestos
+ * (`cestosPorDia`, ver CAPACIDADE_MAXIMA_CESTOS_POR_DIA — o dia inteiro sai
+ * da grade, não só alguns horários), (b) horários já ocupados por outro
+ * pedido da mesma unidade (`ocupados`, em epoch ms — pedidos cancelados não
+ * contam, ver `buscarHorariosOcupados` em pedidos.functions.ts) e (c)
+ * horários que não dariam tempo de terminar o ciclo antes do fechamento do
+ * dia.
  */
 export function gerarSlotsColetaDisponiveis(
   unidade: UnidadeOperacao,
@@ -287,11 +310,13 @@ export function gerarSlotsColetaDisponiveis(
   quantidadeCestos: number,
   agora: Date,
   ocupados: ReadonlySet<number>,
+  cestosPorDia: ReadonlyMap<string, number>,
   diasAFrente: number,
 ): DiaComSlotsColeta[] {
   const grade = gerarGradeColeta(horarios, agora, diasAFrente);
   const dias: DiaComSlotsColeta[] = [];
   for (const dia of grade) {
+    if (!diaTemCapacidade(cestosPorDia, dia.data, quantidadeCestos)) continue;
     const slots = dia.slots.filter(
       (slot) =>
         !ocupados.has(slot.getTime()) &&
@@ -305,6 +330,9 @@ export function gerarSlotsColetaDisponiveis(
 /**
  * Primeiro horário de coleta livre (usado tanto para o agendamento
  * automático de pedidos fora do horário quanto como fallback de exibição).
+ * Pula dias lotados (ver gerarSlotsColetaDisponiveis) — é assim que um
+ * pedido fora do horário feito num dia cheio acaba agendado pro próximo dia
+ * com vaga, não só pro próximo horário livre daquele mesmo dia.
  * `diasAFrente` grande o bastante pra praticamente nunca devolver null; se
  * mesmo assim devolver (unidade lotada por semanas seguidas — não deveria
  * acontecer em uso normal), quem chama decide o fallback.
@@ -315,6 +343,7 @@ export function primeiroSlotColetaLivre(
   quantidadeCestos: number,
   agora: Date,
   ocupados: ReadonlySet<number>,
+  cestosPorDia: ReadonlyMap<string, number>,
   diasAFrente = 21,
 ): Date | null {
   const dias = gerarSlotsColetaDisponiveis(
@@ -323,27 +352,41 @@ export function primeiroSlotColetaLivre(
     quantidadeCestos,
     agora,
     ocupados,
+    cestosPorDia,
     diasAFrente,
   );
   return dias[0]?.slots[0] ?? null;
 }
 
 /**
- * O `slot` está exatamente numa posição válida da grade crua (múltiplo de
- * 30 min a partir da abertura de algum dia ativo, sem estar no passado)?
- * Não considera ocupação nem viabilidade de prazo — só alinhamento. Usado
- * como defesa em criarPedido contra um client que pule obterSlotsColeta e
- * mande um horario_coleta arbitrário.
+ * O `slot` está realmente disponível agora (alinhado à grade, dentro da
+ * capacidade diária, não ocupado por outro pedido e cabendo antes do
+ * fechamento)? É a mesma função que decide o que oferecer em
+ * obterSlotsColeta — usada aqui como defesa em criarPedido contra um client
+ * que pule obterSlotsColeta e mande um horario_coleta arbitrário ou
+ * desatualizado.
  */
-export function slotAlinhadoAGrade(
+export function slotDisponivel(
+  unidade: UnidadeOperacao,
   horarios: HorarioDia[],
+  quantidadeCestos: number,
   agora: Date,
+  ocupados: ReadonlySet<number>,
+  cestosPorDia: ReadonlyMap<string, number>,
   slot: Date,
   diasAFrente = 21,
 ): boolean {
-  const grade = gerarGradeColeta(horarios, agora, diasAFrente);
+  const dias = gerarSlotsColetaDisponiveis(
+    unidade,
+    horarios,
+    quantidadeCestos,
+    agora,
+    ocupados,
+    cestosPorDia,
+    diasAFrente,
+  );
   const alvo = slot.getTime();
-  return grade.some((dia) => dia.slots.some((s) => s.getTime() === alvo));
+  return dias.some((dia) => dia.slots.some((s) => s.getTime() === alvo));
 }
 
 export type SlotColetaPublico = { inicioIso: string; horaLocal: string };

@@ -138,6 +138,37 @@ async function buscarHorariosOcupados(
   );
 }
 
+/**
+ * Soma de cestos já reservados por dia (chave "YYYY-MM-DD" no fuso da
+ * unidade — ver chaveDiaLocal), pra aplicar o teto de capacidade diária
+ * (CAPACIDADE_MAXIMA_CESTOS_POR_DIA em pedido-calculo.server.ts). Mesmo
+ * filtro de buscarHorariosOcupados: só pedidos não cancelados com coleta a
+ * partir de agora.
+ */
+async function buscarCestosOcupadosPorDia(
+  supabaseAdmin: import("@supabase/supabase-js").SupabaseClient,
+  unidadeId: string,
+  agora: Date,
+): Promise<Map<string, number>> {
+  const { data, error } = await supabaseAdmin
+    .from("pedidos_delivery")
+    .select("horario_coleta, quantidade_cestos")
+    .eq("unidade_id", unidadeId)
+    .neq("status", "cancelado")
+    .not("horario_coleta", "is", null)
+    .gte("horario_coleta", agora.toISOString());
+  if (error) throw new Error(error.message);
+
+  const { chaveDiaLocal } = await import("./pedido-calculo.server");
+  const mapa = new Map<string, number>();
+  for (const linha of data ?? []) {
+    if (!linha.horario_coleta) continue;
+    const chave = chaveDiaLocal(new Date(linha.horario_coleta));
+    mapa.set(chave, (mapa.get(chave) ?? 0) + linha.quantidade_cestos);
+  }
+  return mapa;
+}
+
 export type DiaColetaPublico = import("./pedido-calculo.server").DiaColetaPublico;
 export type SlotColetaPublico = import("./pedido-calculo.server").SlotColetaPublico;
 
@@ -171,7 +202,10 @@ export const obterSlotsColeta = createServerFn({ method: "POST" })
     const { gerarSlotsColetaDisponiveis, formatarSlotsColetaPublico } =
       await import("./pedido-calculo.server");
     const agora = new Date();
-    const ocupados = await buscarHorariosOcupados(supabaseAdmin, unidade.id, agora);
+    const [ocupados, cestosPorDia] = await Promise.all([
+      buscarHorariosOcupados(supabaseAdmin, unidade.id, agora),
+      buscarCestosOcupadosPorDia(supabaseAdmin, unidade.id, agora),
+    ]);
     const DIAS_JANELA_PUBLICA = 6;
     const dias = gerarSlotsColetaDisponiveis(
       unidade,
@@ -179,6 +213,7 @@ export const obterSlotsColeta = createServerFn({ method: "POST" })
       data.quantidade_cestos,
       agora,
       ocupados,
+      cestosPorDia,
       DIAS_JANELA_PUBLICA,
     );
     return formatarSlotsColetaPublico(dias);
@@ -325,6 +360,8 @@ export type ResumoPedido = {
 async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   unidade: Awaited<ReturnType<typeof buscarUnidadeCompletaPorSlug>>;
   horarios: import("./pedido-calculo.server").HorarioDia[];
+  ocupados: Set<number>;
+  cestosPorDia: Map<string, number>;
   resumo: ResumoPedido;
   precoDetalhado: import("./pedido-calculo.server").ResumoPreco;
 }> {
@@ -346,10 +383,20 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   const horarios = horariosData ?? [];
 
   const agora = new Date();
-  const ocupados = await buscarHorariosOcupados(supabaseAdmin, unidade.id, agora);
+  const [ocupados, cestosPorDia] = await Promise.all([
+    buscarHorariosOcupados(supabaseAdmin, unidade.id, agora),
+    buscarCestosOcupadosPorDia(supabaseAdmin, unidade.id, agora),
+  ]);
   const proximoSlotLivre =
-    primeiroSlotColetaLivre(unidade, horarios, input.quantidade_cestos, agora, ocupados, 21) ??
-    calcularProximoHorarioUtil(horarios, agora);
+    primeiroSlotColetaLivre(
+      unidade,
+      horarios,
+      input.quantidade_cestos,
+      agora,
+      ocupados,
+      cestosPorDia,
+      21,
+    ) ?? calcularProximoHorarioUtil(horarios, agora);
 
   // "Fora do horário" pra fins da regra de negócio é sobre o instante em
   // que o PEDIDO é feito, não sobre o horário de coleta escolhido (que
@@ -444,6 +491,8 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   return {
     unidade,
     horarios,
+    ocupados,
+    cestosPorDia,
     precoDetalhado: preco,
     resumo: {
       distanciaKm: pernas[0]?.distanciaKm ?? null,
@@ -534,7 +583,7 @@ export const criarPedido = createServerFn({ method: "POST" })
       request?.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       "desconhecido";
 
-    const { unidade, horarios, resumo, precoDetalhado } = await montarResumo({
+    const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } = await montarResumo({
       slug: data.slug,
       quantidade_cestos: data.quantidade_cestos,
       tipo_servico: data.tipo_servico,
@@ -560,17 +609,33 @@ export const criarPedido = createServerFn({ method: "POST" })
       );
     }
 
-    // Defesa extra pro caminho manual (regra do intervalo de 30 min entre
-    // coletas): o horário devolvido por montarResumo precisa realmente
-    // estar alinhado à grade de slots — protege contra um client que pule
-    // obterSlotsColeta e mande um horario_coleta arbitrário. Concorrência
-    // real (dois clientes fechando o mesmo slot ao mesmo tempo) é resolvida
-    // pelo índice único no banco (idx_pedidos_unidade_horario_coleta),
-    // tratado no catch do insert logo abaixo.
+    // Defesa extra pro caminho manual: o horário devolvido por montarResumo
+    // precisa realmente estar disponível — alinhado à grade, dia ainda com
+    // capacidade (CAPACIDADE_MAXIMA_CESTOS_POR_DIA) e horário não ocupado —
+    // protege contra um client que pule obterSlotsColeta ou mande um
+    // horario_coleta desatualizado/arbitrário. Usa ocupados/cestosPorDia já
+    // buscados em montarResumo (mesmo instante, sem round-trip extra);
+    // concorrência real entre dois clientes fechando o mesmo slot ao mesmo
+    // tempo é resolvida pelo índice único no banco
+    // (idx_pedidos_unidade_horario_coleta), tratado no catch do insert logo
+    // abaixo — o teto de capacidade diária, por não ter um índice
+    // equivalente, tem uma janela de corrida bem menor (não eliminada) sob
+    // concorrência pesada no mesmo dia.
     if (!data.usar_proximo_dia_util) {
-      const { slotAlinhadoAGrade } = await import("./pedido-calculo.server");
-      if (!slotAlinhadoAGrade(horarios, new Date(), new Date(resumo.horarioColetaIso))) {
-        throw new Error("Horário de coleta inválido. Volte e escolha novamente.");
+      const { slotDisponivel } = await import("./pedido-calculo.server");
+      const disponivel = slotDisponivel(
+        unidade,
+        horarios,
+        data.quantidade_cestos,
+        new Date(),
+        ocupados,
+        cestosPorDia,
+        new Date(resumo.horarioColetaIso),
+      );
+      if (!disponivel) {
+        throw new Error(
+          "Esse horário de coleta não está mais disponível (dia lotado ou horário ocupado). Volte e escolha outro.",
+        );
       }
     }
 
