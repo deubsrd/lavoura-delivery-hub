@@ -343,6 +343,7 @@ export type Database = {
           data_prevista_retorno: string | null
           desconto_descricao: string | null
           distancia_km: number | null
+          horario_coleta: string | null
           id: string
           ip_origem: string | null
           mesmo_endereco_entrega: boolean | null
@@ -352,6 +353,7 @@ export type Database = {
           numero: string
           numero_entrega: string | null
           observacoes: string | null
+          pedido_fora_do_horario: boolean
           quantidade_cestos: number
           referencia: string | null
           referencia_entrega: string | null
@@ -381,6 +383,7 @@ export type Database = {
           data_prevista_retorno?: string | null
           desconto_descricao?: string | null
           distancia_km?: number | null
+          horario_coleta?: string | null
           id?: string
           ip_origem?: string | null
           mesmo_endereco_entrega?: boolean | null
@@ -390,6 +393,7 @@ export type Database = {
           numero: string
           numero_entrega?: string | null
           observacoes?: string | null
+          pedido_fora_do_horario?: boolean
           quantidade_cestos?: number
           referencia?: string | null
           referencia_entrega?: string | null
@@ -419,6 +423,7 @@ export type Database = {
           data_prevista_retorno?: string | null
           desconto_descricao?: string | null
           distancia_km?: number | null
+          horario_coleta?: string | null
           id?: string
           ip_origem?: string | null
           mesmo_endereco_entrega?: boolean | null
@@ -428,6 +433,7 @@ export type Database = {
           numero?: string
           numero_entrega?: string | null
           observacoes?: string | null
+          pedido_fora_do_horario?: boolean
           quantidade_cestos?: number
           referencia?: string | null
           referencia_entrega?: string | null
