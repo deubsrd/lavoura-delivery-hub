@@ -81,6 +81,15 @@ function buscarHorarioDoDia(horarios: HorarioDia[], diaSemana: number): HorarioD
   return horarios.find((h) => h.dia_semana === diaSemana);
 }
 
+/** Precisa de um `quantidade_maquinas` — não usa o resto de UnidadeOperacao, mas reaproveita o tipo pra não ter mais um parâmetro solto. */
+function tempoTotalProcessamentoMin(
+  unidade: Pick<UnidadeOperacao, "quantidade_maquinas">,
+  quantidadeCestos: number,
+): number {
+  const ciclos = Math.ceil(quantidadeCestos / Math.max(1, unidade.quantidade_maquinas));
+  return ciclos * (MINUTOS_LAVAR + MINUTOS_SECAR) + MINUTOS_FIXOS_COLETA_DOBRA_ENTREGA;
+}
+
 export type PrazoResultado = {
   baseUsada: Date;
   previsto: Date;
@@ -94,9 +103,7 @@ export function calcularPrazo(
   quantidadeCestos: number,
   baseDateTime: Date,
 ): PrazoResultado {
-  const ciclos = Math.ceil(quantidadeCestos / Math.max(1, unidade.quantidade_maquinas));
-  const tempoMaquinasMin = ciclos * (MINUTOS_LAVAR + MINUTOS_SECAR);
-  const tempoTotalMin = tempoMaquinasMin + MINUTOS_FIXOS_COLETA_DOBRA_ENTREGA;
+  const tempoTotalMin = tempoTotalProcessamentoMin(unidade, quantidadeCestos);
 
   const previsto = new Date(baseDateTime.getTime() + tempoTotalMin * 60000);
 
@@ -153,6 +160,207 @@ export function calcularProximoHorarioUtil(horarios: HorarioDia[], apartirDe: Da
   return apartirDe;
 }
 
+/**
+ * A unidade está aceitando pedidos normalmente agora ("agora" = o instante
+ * em que o cliente está enviando o pedido, não o horário de coleta que ele
+ * vai escolher)? Usa exatamente as mesmas três condições que `calcularPrazo`
+ * já usava para decidir "fora do horário" quando todo pedido tinha
+ * baseDateTime = agora: dia fechado, ainda não abriu, ou já passou do
+ * horário-limite de pedido. Extraído como função própria porque agora
+ * baseDateTime pode ser um horário de coleta escolhido pelo cliente (futuro,
+ * dentro do expediente) — o que NÃO significa que a unidade esteja aberta
+ * neste exato instante. Essa distinção é a base da regra "pedido fora do
+ * horário não exige aceite manual": ver `pedido_fora_do_horario` em
+ * pedidos.functions.ts.
+ */
+export function pedidoForaDoHorarioAgora(
+  unidade: Pick<UnidadeOperacao, "hora_limite_pedido">,
+  horarios: HorarioDia[],
+  agora: Date,
+): boolean {
+  const horarioHoje = buscarHorarioDoDia(horarios, diaSemanaLocal(agora));
+  if (!horarioHoje || !horarioHoje.ativo) return true;
+
+  const aberturaMin =
+    parseHora(horarioHoje.hora_abertura).h * 60 + parseHora(horarioHoje.hora_abertura).m;
+  const limiteMin =
+    parseHora(unidade.hora_limite_pedido).h * 60 + parseHora(unidade.hora_limite_pedido).m;
+  const minutoAgora = minutosDoDiaLocal(agora);
+
+  return minutoAgora < aberturaMin || minutoAgora > limiteMin;
+}
+
+/** Intervalo mínimo entre coletas de uma mesma unidade (regra de negócio). */
+export const DURACAO_SLOT_COLETA_MINUTOS = 30;
+
+/** "13:30:00" -> "13:30" (formato usado nos slots devolvidos ao client). */
+function horaLocalDeData(data: Date): string {
+  const local = paraLocal(data);
+  return `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Um slot cabe no mesmo dia se, iniciando a coleta nele, o ciclo completo
+ * (lavagem + secagem + coleta/dobra/entrega) termina antes do fechamento do
+ * dia em que a coleta acontece — sem estourar pra outro dia. Não usa
+ * `hora_limite_pedido` (esse é o corte pra pedidos "pra agora", não pra um
+ * horário de coleta específico já escolhido) nem reabre a checagem de
+ * abertura/dia ativo (o slot já nasce dentro da grade de um dia ativo, ver
+ * `gerarGradeColeta`).
+ */
+function slotCabeNoMesmoDia(
+  unidade: UnidadeOperacao,
+  horarios: HorarioDia[],
+  quantidadeCestos: number,
+  slot: Date,
+): boolean {
+  const horarioDoSlot = buscarHorarioDoDia(horarios, diaSemanaLocal(slot));
+  if (!horarioDoSlot || !horarioDoSlot.ativo) return false;
+  const fechamentoMin =
+    parseHora(horarioDoSlot.hora_fechamento).h * 60 + parseHora(horarioDoSlot.hora_fechamento).m;
+  const tempoTotalMin = tempoTotalProcessamentoMin(unidade, quantidadeCestos);
+  const previsto = new Date(slot.getTime() + tempoTotalMin * 60000);
+  return (
+    chaveDiaLocal(previsto) === chaveDiaLocal(slot) && minutosDoDiaLocal(previsto) <= fechamentoMin
+  );
+}
+
+export type DiaComSlotsColeta = { data: string; diaSemana: number; slots: Date[] };
+
+/**
+ * Grade "crua" de horários de coleta possíveis (sem descontar ocupação nem
+ * viabilidade de prazo): todo múltiplo de 30 min entre a abertura e o
+ * fechamento de cada dia ativo, a partir de `agora`, olhando até
+ * `diasAFrente` dias à frente. No dia de hoje (offset 0), a grade nunca
+ * volta pro passado nem pra antes da abertura — o primeiro slot é sempre
+ * `max(hora_abertura, próximo múltiplo de 30 min a partir de agora)`. Isso
+ * cobre de graça tanto o primeiro pedido do dia (agora < abertura → grade
+ * começa na abertura) quanto pedidos fora do horário comercial tentando
+ * ocupar horários que ainda nem abriram (mesma razão: nunca gera slot antes
+ * da abertura, então nunca há o que "ocupar" ali).
+ */
+export function gerarGradeColeta(
+  horarios: HorarioDia[],
+  agora: Date,
+  diasAFrente: number,
+): DiaComSlotsColeta[] {
+  const dias: DiaComSlotsColeta[] = [];
+  const diaSemanaBase = diaSemanaLocal(agora);
+  const passoMs = DURACAO_SLOT_COLETA_MINUTOS * 60000;
+
+  for (let offset = 0; offset <= diasAFrente; offset++) {
+    const horario = buscarHorarioDoDia(horarios, (diaSemanaBase + offset) % 7);
+    if (!horario || !horario.ativo) continue;
+
+    const abertura = aberturaEmDias(agora, offset, horario.hora_abertura);
+    const fechamento = aberturaEmDias(agora, offset, horario.hora_fechamento);
+    if (fechamento.getTime() <= abertura.getTime()) continue;
+
+    let cursor = abertura;
+    if (offset === 0 && agora.getTime() > abertura.getTime()) {
+      const passosDecorridos = Math.ceil((agora.getTime() - abertura.getTime()) / passoMs);
+      cursor = new Date(abertura.getTime() + passosDecorridos * passoMs);
+    }
+
+    const slots: Date[] = [];
+    while (cursor.getTime() < fechamento.getTime()) {
+      slots.push(cursor);
+      cursor = new Date(cursor.getTime() + passoMs);
+    }
+    if (slots.length > 0) {
+      dias.push({ data: chaveDiaLocal(abertura), diaSemana: (diaSemanaBase + offset) % 7, slots });
+    }
+  }
+  return dias;
+}
+
+/**
+ * Grade de coleta realmente oferecível ao cliente: a grade crua acima,
+ * descontando (a) horários já ocupados por outro pedido da mesma unidade
+ * (`ocupados`, em epoch ms — pedidos cancelados não contam, ver
+ * `buscarHorariosOcupados` em pedidos.functions.ts) e (b) horários que não
+ * dariam tempo de terminar o ciclo antes do fechamento do dia.
+ */
+export function gerarSlotsColetaDisponiveis(
+  unidade: UnidadeOperacao,
+  horarios: HorarioDia[],
+  quantidadeCestos: number,
+  agora: Date,
+  ocupados: ReadonlySet<number>,
+  diasAFrente: number,
+): DiaComSlotsColeta[] {
+  const grade = gerarGradeColeta(horarios, agora, diasAFrente);
+  const dias: DiaComSlotsColeta[] = [];
+  for (const dia of grade) {
+    const slots = dia.slots.filter(
+      (slot) =>
+        !ocupados.has(slot.getTime()) &&
+        slotCabeNoMesmoDia(unidade, horarios, quantidadeCestos, slot),
+    );
+    if (slots.length > 0) dias.push({ data: dia.data, diaSemana: dia.diaSemana, slots });
+  }
+  return dias;
+}
+
+/**
+ * Primeiro horário de coleta livre (usado tanto para o agendamento
+ * automático de pedidos fora do horário quanto como fallback de exibição).
+ * `diasAFrente` grande o bastante pra praticamente nunca devolver null; se
+ * mesmo assim devolver (unidade lotada por semanas seguidas — não deveria
+ * acontecer em uso normal), quem chama decide o fallback.
+ */
+export function primeiroSlotColetaLivre(
+  unidade: UnidadeOperacao,
+  horarios: HorarioDia[],
+  quantidadeCestos: number,
+  agora: Date,
+  ocupados: ReadonlySet<number>,
+  diasAFrente = 21,
+): Date | null {
+  const dias = gerarSlotsColetaDisponiveis(
+    unidade,
+    horarios,
+    quantidadeCestos,
+    agora,
+    ocupados,
+    diasAFrente,
+  );
+  return dias[0]?.slots[0] ?? null;
+}
+
+/**
+ * O `slot` está exatamente numa posição válida da grade crua (múltiplo de
+ * 30 min a partir da abertura de algum dia ativo, sem estar no passado)?
+ * Não considera ocupação nem viabilidade de prazo — só alinhamento. Usado
+ * como defesa em criarPedido contra um client que pule obterSlotsColeta e
+ * mande um horario_coleta arbitrário.
+ */
+export function slotAlinhadoAGrade(
+  horarios: HorarioDia[],
+  agora: Date,
+  slot: Date,
+  diasAFrente = 21,
+): boolean {
+  const grade = gerarGradeColeta(horarios, agora, diasAFrente);
+  const alvo = slot.getTime();
+  return grade.some((dia) => dia.slots.some((s) => s.getTime() === alvo));
+}
+
+export type SlotColetaPublico = { inicioIso: string; horaLocal: string };
+export type DiaColetaPublico = { data: string; diaSemana: number; slots: SlotColetaPublico[] };
+
+/** Formata a grade de slots disponíveis pro formato que trafega pro client. */
+export function formatarSlotsColetaPublico(dias: DiaComSlotsColeta[]): DiaColetaPublico[] {
+  return dias.map((dia) => ({
+    data: dia.data,
+    diaSemana: dia.diaSemana,
+    slots: dia.slots.map((slot) => ({
+      inicioIso: slot.toISOString(),
+      horaLocal: horaLocalDeData(slot),
+    })),
+  }));
+}
+
 export type ConfiguracaoPrecos = {
   valor_lavagem_por_cesto: number;
   valor_secagem_por_cesto: number;
@@ -198,7 +406,10 @@ function buscarValorFaixa(faixas: FaixaDelivery[], distanciaKm: number): number 
   return faixa ? faixa.valor : null;
 }
 
-const ROTULO_PERNA: Record<PernaDelivery["tipo"], string> = { coleta: "coleta", entrega: "entrega" };
+const ROTULO_PERNA: Record<PernaDelivery["tipo"], string> = {
+  coleta: "coleta",
+  entrega: "entrega",
+};
 
 export function calcularPreco(
   precos: ConfiguracaoPrecos,
