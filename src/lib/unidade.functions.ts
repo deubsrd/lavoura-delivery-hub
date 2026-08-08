@@ -134,7 +134,10 @@ export const obterHorariosUnidade = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
-const horaSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora inválida");
+// Aceita "HH:MM" (o que o <input type="time"> envia) e também "HH:MM:SS"
+// (o formato em que o Postgres devolve colunas `time`, caso algum dia
+// volte pro schema sem passar pela normalização do client).
+const horaSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, "Hora inválida");
 
 const horarioDiaSchema = z.object({
   dia_semana: z.number().int().min(0).max(6),

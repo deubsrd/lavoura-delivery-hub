@@ -140,7 +140,15 @@ function SecaoHorarios() {
 
   useEffect(() => {
     if (!horariosQuery.data) return;
-    const porDia = new Map(horariosQuery.data.map((h) => [h.dia_semana, h]));
+    // O Postgres devolve colunas `time` como "HH:MM:SS"; normaliza para
+    // "HH:MM" — formato que o <input type="time"> usa e que o schema de
+    // validação do servidor espera de volta ao salvar.
+    const porDia = new Map(
+      horariosQuery.data.map((h) => [
+        h.dia_semana,
+        { ...h, hora_abertura: h.hora_abertura.slice(0, 5), hora_fechamento: h.hora_fechamento.slice(0, 5) },
+      ]),
+    );
     setHorarios(horariosPadrao().map((padrao) => porDia.get(padrao.dia_semana) ?? padrao));
   }, [horariosQuery.data]);
 
