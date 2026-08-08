@@ -1,5 +1,5 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, Clock, Loader2, Minus, Plus } from "lucide-react";
@@ -162,15 +162,32 @@ function PedidoPage() {
   const [cestos, setCestos] = useState(1);
 
   // Horário de coleta escolhido pelo cliente (ISO). Some intervalo mínimo
-  // de 30 min entre coletas da unidade — a grade abaixo já só oferece
-  // horários livres, ver obterSlotsColeta.
+  // de 30 min entre coletas da unidade e teto de cestos/dia — a grade
+  // abaixo já só oferece horários e dias livres, ver obterSlotsColeta.
+  // refetchInterval mantém a grade atualizada enquanto o cliente está
+  // parado na tela escolhendo (outro cliente pode fechar um horário
+  // nesse meio tempo); sem isso, um slot já ocupado só sumiria da tela
+  // quando o cliente mudasse a quantidade de cestos ou tentasse enviar.
   const slotsColeta = useQuery({
     queryKey: ["slots-coleta", unidade.slug, cestos],
     queryFn: () => obterSlotsColetaFn({ data: { slug: unidade.slug, quantidade_cestos: cestos } }),
     enabled: precisaEscolherHorario,
+    refetchInterval: precisaEscolherHorario ? 20_000 : false,
   });
   const [horarioColeta, setHorarioColeta] = useState<string | null>(null);
   const [diaColetaSelecionado, setDiaColetaSelecionado] = useState<string | null>(null);
+
+  // Se o refetch periódico da grade tirar o horário escolhido (outro
+  // cliente fechou esse slot, ou o dia lotou nesse meio tempo), limpa a
+  // seleção em vez de deixar o cliente tentar enviar um horário que já não
+  // existe mais na lista.
+  useEffect(() => {
+    if (!horarioColeta || !slotsColeta.data) return;
+    const aindaDisponivel = slotsColeta.data.some((dia) =>
+      dia.slots.some((slot) => slot.inicioIso === horarioColeta),
+    );
+    if (!aindaDisponivel) setHorarioColeta(null);
+  }, [slotsColeta.data, horarioColeta]);
 
   function ajustarCestos(delta: number) {
     setCestos((c) => Math.min(50, Math.max(1, c + delta)));
