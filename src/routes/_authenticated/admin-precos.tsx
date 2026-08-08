@@ -199,16 +199,20 @@ function SecaoPrecosBase({
   precos: ConfiguracaoPrecos | null;
   onSalvo: () => void;
 }) {
-  const [lavagem, setLavagem] = useState(String(precos?.valor_lavagem_por_cesto ?? ""));
-  const [secagem, setSecagem] = useState(String(precos?.valor_secagem_por_cesto ?? ""));
   const [atendenteValor, setAtendenteValor] = useState(String(precos?.valor_atendente_por_pedido ?? ""));
 
   const salvar = useMutation({
     mutationFn: async () => {
       const payload = {
         unidade_id: unidadeId,
-        valor_lavagem_por_cesto: Number(lavagem),
-        valor_secagem_por_cesto: Number(secagem),
+        // Lavagem/secagem não são mais editadas aqui — a unidade define o
+        // preço do cesto inteiramente pela grade "Preços por dia e
+        // horário" abaixo. Esses dois campos continuam existindo na
+        // tabela (servem de "preço de reserva" pra um dia/horário sem
+        // regra cadastrada), então preserva o que já estava salvo em vez
+        // de zerar.
+        valor_lavagem_por_cesto: precos?.valor_lavagem_por_cesto ?? 0,
+        valor_secagem_por_cesto: precos?.valor_secagem_por_cesto ?? 0,
         valor_atendente_por_pedido: Number(atendenteValor),
       };
       const { error } = precos
@@ -225,25 +229,24 @@ function SecaoPrecosBase({
 
   return (
     <section className="space-y-3">
-      <h2 className="text-2xl">Preços base</h2>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <Label>Lavagem / cesto</Label>
-          <Input type="number" step="0.01" min="0" value={lavagem} onChange={(e) => setLavagem(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Secagem / cesto</Label>
-          <Input type="number" step="0.01" min="0" value={secagem} onChange={(e) => setSecagem(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Atendente / pedido</Label>
-          <Input type="number" step="0.01" min="0" value={atendenteValor} onChange={(e) => setAtendenteValor(e.target.value)} />
-        </div>
+      <div>
+        <h2 className="text-2xl">Preços base</h2>
+        <p className="text-sm text-muted-foreground">
+          O preço do cesto (lavagem + secagem) é definido pela grade "Preços por dia e horário"
+          abaixo, cobrindo todos os dias. Aqui fica só a taxa fixa da atendente.
+        </p>
       </div>
-      <Button
-        onClick={() => salvar.mutate()}
-        disabled={salvar.isPending || !lavagem || !secagem || !atendenteValor}
-      >
+      <div className="max-w-[200px] space-y-1.5">
+        <Label>Atendente / pedido</Label>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={atendenteValor}
+          onChange={(e) => setAtendenteValor(e.target.value)}
+        />
+      </div>
+      <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !atendenteValor}>
         {salvar.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
         Salvar preços
       </Button>
@@ -294,7 +297,8 @@ function SecaoPrecosPorHorario({
       onMudou();
       toast.success("Preço por horário adicionado.");
     },
-    onError: () => toast.error("Não foi possível adicionar o preço por horário."),
+    onError: (error: Error) =>
+      toast.error(error.message || "Não foi possível adicionar o preço por horário."),
   });
 
   const remover = useMutation({
