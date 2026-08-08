@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BellRing,
   CalendarClock,
+  Copy,
   LogOut,
   MessageCircle,
   PackageCheck,
@@ -32,6 +33,7 @@ import {
   formatarDataHora,
   formatarMoeda,
   maskTelefone,
+  montarMensagemDelivery,
   statusAplicavel,
   tempoRelativo,
   whatsappLink,
@@ -683,6 +685,16 @@ function MotoboyForm({
   );
 }
 
+async function copiarMensagemDelivery(pedido: Pedido) {
+  const mensagem = montarMensagemDelivery(pedido);
+  try {
+    await navigator.clipboard.writeText(mensagem);
+    toast.success("Mensagem de delivery copiada. Cole no WhatsApp do motoboy.");
+  } catch {
+    toast.error("Não foi possível copiar a mensagem. Copie manualmente.");
+  }
+}
+
 function Card({
   pedido,
   onAbrir,
@@ -749,6 +761,13 @@ function Card({
         >
           <MessageCircle className="size-3" /> WhatsApp
         </a>
+        <button
+          type="button"
+          onClick={() => copiarMensagemDelivery(pedido)}
+          className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium"
+        >
+          <Copy className="size-3" /> Copiar mensagem de delivery
+        </button>
         {proximo && statusAplicavel(proximo, pedido.tipo_servico) ? (
           <Button
             size="sm"
