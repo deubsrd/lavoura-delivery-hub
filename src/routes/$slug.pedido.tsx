@@ -11,6 +11,7 @@ import {
   criarClienteBasico,
   criarPedido,
   getUnidadeBySlug,
+  obterHorariosPublico,
   obterPrecosBase,
   type ClienteEncontrado,
   type ResumoPedido,
@@ -21,7 +22,6 @@ import {
   formatarDataHora,
   formatarMoeda,
   maskTelefone,
-  textoHorarioFuncionamento,
   type TipoServico,
 } from "@/lib/lavoura";
 import { Input } from "@/components/ui/input";
@@ -118,6 +118,7 @@ function PedidoPage() {
   const calcularResumoFn = useServerFn(calcularResumoPedido);
   const enviarPedidoFn = useServerFn(criarPedido);
   const obterPrecosBaseFn = useServerFn(obterPrecosBase);
+  const obterHorariosPublicoFn = useServerFn(obterHorariosPublico);
 
   // Preços base (lavagem/secagem/atendente) buscados uma vez, pra mostrar
   // uma prévia de valor "ao vivo" na Etapa 4 conforme a quantidade de
@@ -126,6 +127,11 @@ function PedidoPage() {
   const precosBase = useQuery({
     queryKey: ["precos-base", unidade.slug],
     queryFn: () => obterPrecosBaseFn({ data: { slug: unidade.slug } }),
+  });
+
+  const horariosPublico = useQuery({
+    queryKey: ["horarios-publico", unidade.slug],
+    queryFn: () => obterHorariosPublicoFn({ data: { slug: unidade.slug } }),
   });
 
   const [etapa, setEtapa] = useState<Etapa>(1);
@@ -414,7 +420,7 @@ function PedidoPage() {
           </p>
           <p className="mt-4 flex items-start gap-2 rounded-lg bg-accent/15 p-3 text-sm">
             <Clock className="mt-0.5 size-4 shrink-0 text-accent" />
-            {textoHorarioFuncionamento(unidade)}
+            {horariosPublico.data?.textoHoje ?? "Confira nosso horário de atendimento."}
           </p>
         </div>
       </header>

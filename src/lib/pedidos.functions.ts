@@ -24,8 +24,6 @@ export type UnidadePublica = {
   slug: string;
   cidade: string;
   prazo_padrao_horas: number;
-  hora_abertura: string;
-  hora_fechamento: string;
   hora_limite_pedido: string;
 };
 
@@ -36,7 +34,7 @@ export const getUnidadeBySlug = createServerFn({ method: "GET" })
     const supabase = getPublicClient();
     const { data: unidade, error } = await supabase
       .from("unidades_publico")
-      .select("id, nome, slug, cidade, prazo_padrao_horas, hora_abertura, hora_fechamento, hora_limite_pedido")
+      .select("id, nome, slug, cidade, prazo_padrao_horas, hora_limite_pedido")
       .eq("slug", data.slug)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -52,7 +50,7 @@ async function buscarUnidadeCompletaPorSlug(slug: string) {
   const { data: unidade, error } = await supabaseAdmin
     .from("unidades")
     .select(
-      "id, nome, slug, cidade, prazo_padrao_horas, hora_abertura, hora_fechamento, hora_limite_pedido, quantidade_maquinas, latitude, longitude, endereco_completo",
+      "id, nome, slug, cidade, prazo_padrao_horas, hora_limite_pedido, quantidade_maquinas, latitude, longitude, endereco_completo",
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -60,6 +58,47 @@ async function buscarUnidadeCompletaPorSlug(slug: string) {
   if (!unidade) throw new Error("Unidade não encontrada.");
   return unidade;
 }
+
+export type HorarioDiaPublico = {
+  dia_semana: number;
+  ativo: boolean;
+  hora_abertura: string;
+  hora_fechamento: string;
+};
+
+export type HorariosPublico = {
+  horarios: HorarioDiaPublico[];
+  hora_limite_pedido: string;
+  textoHoje: string;
+};
+
+/**
+ * Horário de funcionamento por dia da semana + texto pronto do horário de
+ * hoje, para o cabeçalho do formulário público. O "hoje" é calculado no
+ * servidor (fuso da unidade), não no browser do cliente.
+ */
+export const obterHorariosPublico = createServerFn({ method: "GET" })
+  .inputValidator((data: { slug: string }) => z.object({ slug: z.string().min(1).max(80) }).parse(data))
+  .handler(async ({ data }): Promise<HorariosPublico> => {
+    const unidade = await buscarUnidadeCompletaPorSlug(data.slug);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: horarios, error } = await supabaseAdmin
+      .from("horarios_unidade")
+      .select("dia_semana, ativo, hora_abertura, hora_fechamento")
+      .eq("unidade_id", unidade.id)
+      .order("dia_semana");
+    if (error) throw new Error(error.message);
+
+    const { diaSemanaLocal } = await import("./pedido-calculo.server");
+    const { textoHorarioHoje } = await import("./lavoura");
+    const hoje = (horarios ?? []).find((h) => h.dia_semana === diaSemanaLocal(new Date())) ?? null;
+
+    return {
+      horarios: horarios ?? [],
+      hora_limite_pedido: unidade.hora_limite_pedido,
+      textoHoje: textoHorarioHoje(hoje, unidade.hora_limite_pedido),
+    };
+  });
 
 export type ClienteEncontrado = {
   nome_completo: string;
@@ -195,13 +234,18 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   );
   const { calcularDistanciaKm } = await import("./geolocalizacao.server");
 
+  const { data: horarios } = await supabaseAdmin
+    .from("horarios_unidade")
+    .select("dia_semana, ativo, hora_abertura, hora_fechamento")
+    .eq("unidade_id", unidade.id);
+
   const agora = new Date();
   const baseDateTime = input.usar_proximo_dia_util
-    ? calcularProximoHorarioUtil(unidade, agora)
+    ? calcularProximoHorarioUtil(horarios ?? [], agora)
     : agora;
 
-  const prazo = calcularPrazo(unidade, input.quantidade_cestos, baseDateTime);
-  const proximoHorarioUtil = calcularProximoHorarioUtil(unidade, agora);
+  const prazo = calcularPrazo(unidade, horarios ?? [], input.quantidade_cestos, baseDateTime);
+  const proximoHorarioUtil = calcularProximoHorarioUtil(horarios ?? [], agora);
 
   // O valor do delivery é cobrado uma vez por "perna" do trajeto: só
   // busca ou só entrega tem uma perna; busca_e_entrega tem duas — a

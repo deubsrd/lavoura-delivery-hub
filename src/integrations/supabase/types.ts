@@ -421,6 +421,48 @@ export type Database = {
           },
         ]
       }
+      horarios_unidade: {
+        Row: {
+          ativo: boolean
+          dia_semana: number
+          hora_abertura: string
+          hora_fechamento: string
+          id: string
+          unidade_id: string
+        }
+        Insert: {
+          ativo?: boolean
+          dia_semana: number
+          hora_abertura?: string
+          hora_fechamento?: string
+          id?: string
+          unidade_id: string
+        }
+        Update: {
+          ativo?: boolean
+          dia_semana?: number
+          hora_abertura?: string
+          hora_fechamento?: string
+          id?: string
+          unidade_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "horarios_unidade_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "unidades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "horarios_unidade_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "unidades_publico"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promocoes_dia_semana: {
         Row: {
           aplica_em: Database["public"]["Enums"]["aplica_desconto_em"]

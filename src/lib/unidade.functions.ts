@@ -112,6 +112,74 @@ export const salvarIdentificacaoUnidade = createServerFn({ method: "POST" })
     return { nome: data.nome, cidade: data.cidade };
   });
 
+export type HorarioDiaUnidade = {
+  dia_semana: number;
+  ativo: boolean;
+  hora_abertura: string;
+  hora_fechamento: string;
+};
+
+/** Horário de funcionamento por dia da semana da própria unidade (só admin). */
+export const obterHorariosUnidade = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<HorarioDiaUnidade[]> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("horarios_unidade")
+      .select("dia_semana, ativo, hora_abertura, hora_fechamento")
+      .eq("unidade_id", unidadeId)
+      .order("dia_semana");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+const horaSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora inválida");
+
+const horarioDiaSchema = z.object({
+  dia_semana: z.number().int().min(0).max(6),
+  ativo: z.boolean(),
+  hora_abertura: horaSchema,
+  hora_fechamento: horaSchema,
+});
+
+/**
+ * Salva os 7 dias de horário de funcionamento de uma vez (a tela sempre
+ * edita a semana inteira junto, então um upsert em lote é mais simples
+ * que um CRUD linha a linha).
+ */
+export const salvarHorariosUnidade = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z
+      .object({ horarios: z.array(horarioDiaSchema).length(7) })
+      .refine(
+        (d) => new Set(d.horarios.map((h) => h.dia_semana)).size === 7,
+        "Informe os 7 dias da semana",
+      )
+      .refine(
+        (d) => d.horarios.every((h) => !h.ativo || h.hora_abertura < h.hora_fechamento),
+        "O horário de abertura precisa ser antes do de fechamento",
+      )
+      .parse(data),
+  )
+  .handler(async ({ data, context }): Promise<HorarioDiaUnidade[]> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const linhas = data.horarios.map((h) => ({
+      unidade_id: unidadeId,
+      dia_semana: h.dia_semana,
+      ativo: h.ativo,
+      hora_abertura: h.hora_abertura,
+      hora_fechamento: h.hora_fechamento,
+    }));
+    const { error } = await supabaseAdmin
+      .from("horarios_unidade")
+      .upsert(linhas, { onConflict: "unidade_id,dia_semana" });
+    if (error) throw new Error(error.message);
+    return data.horarios;
+  });
+
 export type CodigoConviteUnidade = { codigo_convite: string };
 
 /** Código de convite da própria unidade (coluna não é selecionável direto pelo client, nem por admin). */
