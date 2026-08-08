@@ -1,0 +1,18 @@
+{
+  "name": "lavoura-whatsapp-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Script Node standalone (Baileys) que conecta o WhatsApp de cada unidade e troca mensagens com o Supabase. Roda fora do app TanStack Start/Cloudflare — pensado pra uma VM Always Free (Oracle Cloud). Ver README.md.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.0",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "dotenv": "^16.4.5",
+    "pino": "^9.4.0",
+    "qrcode": "^1.5.4"
+  }
+}
