@@ -70,6 +70,81 @@ export function enderecoResumido(p: {
   return `${p.rua}, ${p.numero} — ${p.bairro}`;
 }
 
+function enderecoCompleto(p: {
+  rua: string;
+  numero: string;
+  bairro: string;
+  complemento?: string | null;
+  referencia?: string | null;
+}): string {
+  let texto = enderecoResumido(p);
+  if (p.complemento) texto += ` (${p.complemento})`;
+  if (p.referencia) texto += ` — ref: ${p.referencia}`;
+  return texto;
+}
+
+/**
+ * Mensagem pronta pra colar no WhatsApp do motoboy, com tudo que ele
+ * precisa pra sair pra rua sem ter que abrir o painel: quem, onde, quando
+ * e quantos cestos. O endereço principal (rua/numero/bairro) é o de
+ * coleta para busca/busca_e_entrega, e o de entrega para o serviço "só
+ * entrega" — mesma convenção já usada no detalhe do card no painel.
+ */
+export function montarMensagemDelivery(pedido: {
+  nome_completo: string;
+  telefone: string;
+  tipo_servico: TipoServico;
+  quantidade_cestos: number;
+  horario_coleta: string | null;
+  rua: string;
+  numero: string;
+  bairro: string;
+  complemento: string | null;
+  referencia: string | null;
+  mesmo_endereco_entrega: boolean | null;
+  rua_entrega: string | null;
+  numero_entrega: string | null;
+  bairro_entrega: string | null;
+  complemento_entrega: string | null;
+  referencia_entrega: string | null;
+  observacoes: string | null;
+}): string {
+  const linhas: string[] = [
+    "*Delivery Lavoura*",
+    "",
+    `Cliente: ${pedido.nome_completo}`,
+    `Telefone: ${maskTelefone(pedido.telefone)}`,
+    `Serviço: ${TIPO_SERVICO_LABEL[pedido.tipo_servico]}`,
+    `Cestos: ${pedido.quantidade_cestos}`,
+    "",
+    `Horário de coleta: ${pedido.horario_coleta ? formatarDataHora(pedido.horario_coleta) : "o quanto antes"}`,
+    "",
+    `${pedido.tipo_servico === "entrega" ? "Endereço de entrega" : "Endereço de coleta"}: ${enderecoCompleto(pedido)}`,
+  ];
+
+  if (pedido.tipo_servico === "busca_e_entrega") {
+    if (pedido.mesmo_endereco_entrega === false && pedido.rua_entrega) {
+      linhas.push(
+        `Endereço de entrega: ${enderecoCompleto({
+          rua: pedido.rua_entrega,
+          numero: pedido.numero_entrega ?? "",
+          bairro: pedido.bairro_entrega ?? "",
+          complemento: pedido.complemento_entrega,
+          referencia: pedido.referencia_entrega,
+        })}`,
+      );
+    } else {
+      linhas.push("Entrega no mesmo endereço da coleta.");
+    }
+  }
+
+  if (pedido.observacoes) {
+    linhas.push("", `Observações: ${pedido.observacoes}`);
+  }
+
+  return linhas.join("\n");
+}
+
 export function tempoRelativo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const min = Math.floor(diff / 60000);
