@@ -42,7 +42,7 @@ function chaveDiaLocal(data: Date): string {
   return paraLocal(data).toISOString().slice(0, 10);
 }
 
-function diaSemanaLocal(data: Date): number {
+export function diaSemanaLocal(data: Date): number {
   return paraLocal(data).getUTCDay();
 }
 
@@ -51,26 +51,35 @@ function parseHora(hora: string): { h: number; m: number } {
   return { h: h ?? 0, m: m ?? 0 };
 }
 
-/** Meia-noite local (America/Boa_Vista) do dia seguinte ao informado, na hora de abertura configurada. */
-function proximaAberturaDiaSeguinte(data: Date, horaAbertura: string): Date {
+/** Data/hora local (America/Boa_Vista) de abertura N dias à frente da informada, na hora dada. */
+function aberturaEmDias(data: Date, diasAFrente: number, horaAbertura: string): Date {
   const local = paraLocal(data);
   const { h, m } = parseHora(horaAbertura);
   const anoMesDia = Date.UTC(
     local.getUTCFullYear(),
     local.getUTCMonth(),
-    local.getUTCDate() + 1,
+    local.getUTCDate() + diasAFrente,
     h,
     m,
   );
   return new Date(anoMesDia - OFFSET_MINUTOS_UNIDADE * 60000);
 }
 
-export type UnidadeOperacao = {
+export type HorarioDia = {
+  dia_semana: number;
+  ativo: boolean;
   hora_abertura: string;
   hora_fechamento: string;
+};
+
+export type UnidadeOperacao = {
   hora_limite_pedido: string;
   quantidade_maquinas: number;
 };
+
+function buscarHorarioDoDia(horarios: HorarioDia[], diaSemana: number): HorarioDia | undefined {
+  return horarios.find((h) => h.dia_semana === diaSemana);
+}
 
 export type PrazoResultado = {
   baseUsada: Date;
@@ -81,6 +90,7 @@ export type PrazoResultado = {
 
 export function calcularPrazo(
   unidade: UnidadeOperacao,
+  horarios: HorarioDia[],
   quantidadeCestos: number,
   baseDateTime: Date,
 ): PrazoResultado {
@@ -90,26 +100,57 @@ export function calcularPrazo(
 
   const previsto = new Date(baseDateTime.getTime() + tempoTotalMin * 60000);
 
+  const horarioHoje = buscarHorarioDoDia(horarios, diaSemanaLocal(baseDateTime));
+  const diaFechado = !horarioHoje || !horarioHoje.ativo;
+
   const limitePedidoMin =
     parseHora(unidade.hora_limite_pedido).h * 60 + parseHora(unidade.hora_limite_pedido).m;
-  const fechamentoMin =
-    parseHora(unidade.hora_fechamento).h * 60 + parseHora(unidade.hora_fechamento).m;
+  const aberturaMin = horarioHoje
+    ? parseHora(horarioHoje.hora_abertura).h * 60 + parseHora(horarioHoje.hora_abertura).m
+    : 0;
+  const fechamentoMin = horarioHoje
+    ? parseHora(horarioHoje.hora_fechamento).h * 60 + parseHora(horarioHoje.hora_fechamento).m
+    : 0;
 
-  const pedidoDepoisDoLimite = minutosDoDiaLocal(baseDateTime) > limitePedidoMin;
+  const minutoAgora = minutosDoDiaLocal(baseDateTime);
+  const pedidoAntesDaAbertura = !diaFechado && minutoAgora < aberturaMin;
+  const pedidoDepoisDoLimite = !diaFechado && minutoAgora > limitePedidoMin;
   const retornoEmOutroDia = chaveDiaLocal(previsto) !== chaveDiaLocal(baseDateTime);
   const retornoDepoisDoFechamento =
-    !retornoEmOutroDia && minutosDoDiaLocal(previsto) > fechamentoMin;
+    !diaFechado && !retornoEmOutroDia && minutosDoDiaLocal(previsto) > fechamentoMin;
 
   return {
     baseUsada: baseDateTime,
     previsto,
-    foraDoHorario: pedidoDepoisDoLimite || retornoEmOutroDia || retornoDepoisDoFechamento,
+    foraDoHorario:
+      diaFechado ||
+      pedidoAntesDaAbertura ||
+      pedidoDepoisDoLimite ||
+      retornoEmOutroDia ||
+      retornoDepoisDoFechamento,
     cicloMinutos: tempoTotalMin,
   };
 }
 
-export function calcularProximoHorarioUtil(unidade: UnidadeOperacao, apartirDe: Date): Date {
-  return proximaAberturaDiaSeguinte(apartirDe, unidade.hora_abertura);
+/**
+ * Próximo horário de abertura a partir de `apartirDe`: hoje mesmo, se ainda
+ * não tiver passado da abertura de hoje e hoje for um dia ativo; senão o
+ * primeiro dia ativo seguinte (pulando dias marcados como fechados),
+ * olhando até uma semana à frente.
+ */
+export function calcularProximoHorarioUtil(horarios: HorarioDia[], apartirDe: Date): Date {
+  const diaSemanaBase = diaSemanaLocal(apartirDe);
+  for (let offset = 0; offset <= 8; offset++) {
+    const horario = buscarHorarioDoDia(horarios, (diaSemanaBase + offset) % 7);
+    if (!horario || !horario.ativo) continue;
+    const abertura = aberturaEmDias(apartirDe, offset, horario.hora_abertura);
+    if (offset === 0 && abertura.getTime() <= apartirDe.getTime()) continue;
+    return abertura;
+  }
+  // Nenhum dia ativo configurado — não deveria acontecer em uso normal
+  // (toda unidade deveria ter ao menos um dia aberto), mas devolve a
+  // própria referência em vez de travar o cálculo.
+  return apartirDe;
 }
 
 export type ConfiguracaoPrecos = {
