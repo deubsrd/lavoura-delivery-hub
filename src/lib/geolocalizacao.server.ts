@@ -52,17 +52,42 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return raioTerraKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export type ResultadoGeocodificacao =
-  | { ok: true; latitude: number; longitude: number; enderecoFormatado: string }
-  | { ok: false; mensagem: string };
+/**
+ * O parser de texto livre do Nominatim é frágil: um endereço com número
+ * da casa e/ou bairro que ele não consegue casar com precisão total
+ * frequentemente devolve ZERO resultados, em vez de degradar para uma
+ * correspondência parcial (diferente do Google, por exemplo). Confirmado
+ * na prática com endereços reais de Boa Vista — a mesma rua sozinha
+ * sempre é encontrada, mas "rua, número - bairro, cidade - uf" às vezes
+ * não. Como o uso aqui é estimar distância de delivery (não navegação
+ * turn-by-turn), perder precisão de número/bairro numa tentativa de
+ * fallback é um bom negócio: continuar funcionando é mais importante do
+ * que a precisão do último metro.
+ */
+function semNumerosDeCasa(endereco: string): string {
+  return endereco
+    .replace(/\b\d+\b/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*,\s*,/g, ",")
+    .replace(/^[\s,-]+|[\s,-]+$/g, "")
+    .trim();
+}
 
-const MENSAGEM_GEOCODIFICACAO_PADRAO =
-  "Não foi possível localizar esse endereço agora. Confira se está completo (rua, número, bairro, cidade) e tente de novo.";
+/** Mantém só o primeiro trecho (geralmente a rua) e o último (geralmente cidade/UF), descartando o meio (geralmente o bairro). */
+function apenasPrimeiroEUltimoTrecho(endereco: string): string {
+  const trechos = endereco
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (trechos.length <= 2) return endereco;
+  return `${trechos[0]}, ${trechos[trechos.length - 1]}`;
+}
 
-/** Converte um endereço em texto para latitude/longitude via OpenStreetMap Nominatim (gratuito, sem chave). */
-export async function geocodarEndereco(endereco: string): Promise<ResultadoGeocodificacao> {
+type ResultadoBrutoNominatim = { lat: string; lon: string; display_name?: string };
+
+async function buscarNoNominatim(query: string): Promise<ResultadoBrutoNominatim | null> {
   const url = new URL(NOMINATIM_URL);
-  url.searchParams.set("q", endereco);
+  url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
   url.searchParams.set("addressdetails", "0");
   url.searchParams.set("limit", "1");
@@ -79,20 +104,41 @@ export async function geocodarEndereco(endereco: string): Promise<ResultadoGeoco
     });
 
     if (!response.ok) {
-      console.error(`[geolocalizacao] HTTP ${response.status} ao geocodificar endereço`);
-      return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
+      console.error(`[geolocalizacao] HTTP ${response.status} ao geocodificar "${query}"`);
+      return null;
     }
 
-    const json = (await response.json()) as {
-      lat: string;
-      lon: string;
-      display_name?: string;
-    }[];
+    const json = (await response.json()) as ResultadoBrutoNominatim[];
+    return json[0] ?? null;
+  } catch (err) {
+    console.error(`[geolocalizacao] falha ao chamar Nominatim para "${query}"`, err);
+    return null;
+  }
+}
 
-    const resultado = json[0];
-    if (!resultado) {
-      return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
-    }
+export type ResultadoGeocodificacao =
+  | { ok: true; latitude: number; longitude: number; enderecoFormatado: string }
+  | { ok: false; mensagem: string };
+
+const MENSAGEM_GEOCODIFICACAO_PADRAO =
+  "Não foi possível localizar esse endereço agora. Confira se está completo (rua, número, bairro, cidade) e tente de novo.";
+
+/**
+ * Converte um endereço em texto para latitude/longitude via OpenStreetMap
+ * Nominatim (gratuito, sem chave). Tenta o endereço como digitado; se não
+ * achar nada, tenta de novo com o número da casa removido e, por fim, só
+ * com o primeiro e o último trecho (rua + cidade/UF) — ver
+ * semNumerosDeCasa/apenasPrimeiroEUltimoTrecho para o porquê.
+ */
+export async function geocodarEndereco(endereco: string): Promise<ResultadoGeocodificacao> {
+  const semNumero = semNumerosDeCasa(endereco);
+  const simplificado = apenasPrimeiroEUltimoTrecho(semNumero);
+
+  const tentativas = [...new Set([endereco, semNumero, simplificado])].filter((t) => t.length >= 3);
+
+  for (const tentativa of tentativas) {
+    const resultado = await buscarNoNominatim(tentativa);
+    if (!resultado) continue;
 
     const latitude = Number(resultado.lat);
     const longitude = Number(resultado.lon);
@@ -101,7 +147,7 @@ export async function geocodarEndereco(endereco: string): Promise<ResultadoGeoco
         "[geolocalizacao] resposta do Nominatim sem coordenadas válidas",
         JSON.stringify(resultado),
       );
-      return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
+      continue;
     }
 
     return {
@@ -110,10 +156,9 @@ export async function geocodarEndereco(endereco: string): Promise<ResultadoGeoco
       longitude,
       enderecoFormatado: resultado.display_name ?? endereco,
     };
-  } catch (err) {
-    console.error("[geolocalizacao] falha ao chamar Nominatim", err);
-    return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
   }
+
+  return { ok: false, mensagem: MENSAGEM_GEOCODIFICACAO_PADRAO };
 }
 
 export type ResultadoDistancia =

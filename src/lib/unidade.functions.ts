@@ -23,6 +23,8 @@ export type EnderecoUnidade = {
   longitude: number | null;
 };
 
+export type SalvarEnderecoResultado = EnderecoUnidade & { localizacaoConfirmada: boolean };
+
 /** Endereço/coordenadas configurados da própria unidade (só admin). */
 export const obterEnderecoUnidade = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -39,39 +41,45 @@ export const obterEnderecoUnidade = createServerFn({ method: "GET" })
   });
 
 /**
- * Salva o endereço da unidade e geocodifica automaticamente (OpenStreetMap
- * Nominatim) para preencher latitude/longitude — usadas como origem no
- * cálculo de distância de delivery. A atendente nunca precisa lidar com
- * coordenadas diretamente.
+ * Salva o endereço da unidade e tenta geocodificar automaticamente
+ * (OpenStreetMap Nominatim) para preencher latitude/longitude — usadas
+ * como origem no cálculo de distância de delivery. A geocodificação é
+ * "best effort": o Nominatim público é gratuito mas instável (limite de
+ * 1 req/s, endereços não encontrados, indisponibilidade temporária), então
+ * uma falha nele NÃO pode impedir o salvamento do endereço em si — antes
+ * disso, qualquer erro de geocodificação bloqueava a confirmação inteira e
+ * o admin não conseguia salvar o endereço de jeito nenhum. Agora o texto é
+ * sempre salvo; se a geocodificação falhar, latitude/longitude ficam nulas
+ * e a UI mostra "localização a confirmar" (o admin pode tentar salvar de
+ * novo depois para completar a geocodificação).
  */
 export const salvarEnderecoUnidade = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
     z.object({ endereco: z.string().trim().min(10, "Informe o endereço completo").max(300) }).parse(data),
   )
-  .handler(async ({ data, context }): Promise<EnderecoUnidade> => {
+  .handler(async ({ data, context }): Promise<SalvarEnderecoResultado> => {
     const { unidadeId } = await exigirAdmin(context);
 
     const { geocodarEndereco } = await import("./geolocalizacao.server");
     const geocodificado = await geocodarEndereco(data.endereco);
-    if (!geocodificado.ok) throw new Error(geocodificado.mensagem);
+
+    const atualizacao = geocodificado.ok
+      ? {
+          endereco_completo: geocodificado.enderecoFormatado,
+          latitude: geocodificado.latitude,
+          longitude: geocodificado.longitude,
+        }
+      : { endereco_completo: data.endereco, latitude: null, longitude: null };
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("unidades")
-      .update({
-        endereco_completo: geocodificado.enderecoFormatado,
-        latitude: geocodificado.latitude,
-        longitude: geocodificado.longitude,
-      })
+      .update(atualizacao)
       .eq("id", unidadeId);
     if (error) throw new Error(error.message);
 
-    return {
-      endereco_completo: geocodificado.enderecoFormatado,
-      latitude: geocodificado.latitude,
-      longitude: geocodificado.longitude,
-    };
+    return { ...atualizacao, localizacaoConfirmada: geocodificado.ok };
   });
 
 export type IdentificacaoUnidade = { nome: string; cidade: string };

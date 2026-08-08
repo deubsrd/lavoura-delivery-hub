@@ -54,12 +54,18 @@ function SecaoEndereco() {
   const salvar = useMutation({
     mutationFn: () => salvarEndereco({ data: { endereco } }),
     onSuccess: (res) => {
-      toast.success("Endereço confirmado e localização atualizada.");
+      if (res.localizacaoConfirmada) {
+        toast.success("Endereço confirmado e localização atualizada.");
+      } else {
+        toast.warning(
+          "Endereço salvo, mas não foi possível confirmar a localização agora. Tente salvar de novo em instantes.",
+        );
+      }
       setEndereco(res.endereco_completo ?? endereco);
       enderecoAtual.refetch();
     },
     onError: (error: Error) =>
-      toast.error(error.message || "Não foi possível confirmar o endereço."),
+      toast.error(error.message || "Não foi possível salvar o endereço."),
   });
 
   const localizacaoConfirmada =
