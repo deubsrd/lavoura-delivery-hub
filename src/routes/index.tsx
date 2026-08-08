@@ -4,16 +4,20 @@ import { Truck, Sparkles, ShieldCheck } from "lucide-react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Lavoura — Lavanderia self-service com busca e entrega" },
+      { title: "Lavoura — Lavanderia autosserviço com busca e entrega" },
       {
         name: "description",
         content:
           "Peça a busca e entrega das suas roupas na Lavoura. Formulário rápido, prazo transparente e acompanhamento do pedido pela unidade.",
       },
-      { property: "og:title", content: "Lavoura — Lavanderia self-service com busca e entrega" },
+      {
+        property: "og:title",
+        content: "Lavoura — Lavanderia autosserviço com busca e entrega",
+      },
       {
         property: "og:description",
-        content: "Peça a busca e entrega das suas roupas na Lavoura, em poucos toques pelo celular.",
+        content:
+          "Peça a busca e entrega das suas roupas na Lavoura. Formulário rápido, prazo transparente e acompanhamento do pedido pela unidade.",
       },
     ],
   }),
