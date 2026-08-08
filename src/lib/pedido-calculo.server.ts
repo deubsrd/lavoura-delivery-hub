@@ -421,6 +421,35 @@ export type PromocaoDiaSemana = {
 };
 
 /**
+ * Preço customizado do cesto (lavagem + secagem combinadas) pra uma janela
+ * de dia da semana + horário — substitui a soma de valor_lavagem_por_cesto
+ * + valor_secagem_por_cesto quando o horário de coleta do pedido cai
+ * dentro dela. `hora_fim <= hora_inicio` é uma janela que atravessa a
+ * meia-noite (ex.: 23:00–00:59).
+ */
+export type PrecoPorHorario = {
+  dia_semana: number;
+  hora_inicio: string;
+  hora_fim: string;
+  valor_cesto: number;
+};
+
+function buscarPrecoPorHorario(
+  regras: PrecoPorHorario[],
+  data: Date,
+): PrecoPorHorario | undefined {
+  const dia = diaSemanaLocal(data);
+  const minuto = minutosDoDiaLocal(data);
+  return regras.find((r) => {
+    if (r.dia_semana !== dia) return false;
+    const inicioMin = parseHora(r.hora_inicio).h * 60 + parseHora(r.hora_inicio).m;
+    const fimMin = parseHora(r.hora_fim).h * 60 + parseHora(r.hora_fim).m;
+    if (fimMin <= inicioMin) return minuto >= inicioMin || minuto <= fimMin;
+    return minuto >= inicioMin && minuto <= fimMin;
+  });
+}
+
+/**
  * Uma "perna" do trajeto do motoboy (coleta e/ou entrega). O valor do
  * delivery é cobrado uma vez por perna — busca ou entrega isoladas têm
  * uma perna, busca_e_entrega tem duas (mesma distância se o endereço de
@@ -458,25 +487,48 @@ export function calcularPreco(
   precos: ConfiguracaoPrecos,
   faixas: FaixaDelivery[],
   promocoes: PromocaoDiaSemana[],
+  precosPorHorario: PrecoPorHorario[],
   quantidadeCestos: number,
   pernas: PernaDelivery[],
   dataBuscaParaPromocao: Date,
 ): ResumoPreco {
-  const valorLavagem = quantidadeCestos * precos.valor_lavagem_por_cesto;
-  const valorSecagem = quantidadeCestos * precos.valor_secagem_por_cesto;
-  const valorAtendente = precos.valor_atendente_por_pedido;
+  const regraHorario = buscarPrecoPorHorario(precosPorHorario, dataBuscaParaPromocao);
 
-  const detalhamento: ItemDetalhamento[] = [
-    {
-      rotulo: `Lavagem (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(precos.valor_lavagem_por_cesto)})`,
-      valor: valorLavagem,
-    },
-    {
-      rotulo: `Secagem (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(precos.valor_secagem_por_cesto)})`,
-      valor: valorSecagem,
-    },
-    { rotulo: "Serviço da atendente", valor: valorAtendente },
-  ];
+  let valorLavagem: number;
+  let valorSecagem: number;
+  const detalhamento: ItemDetalhamento[] = [];
+
+  if (regraHorario) {
+    // Preço especial: um único valor pro cesto (lavagem + secagem juntas)
+    // nessa janela — dividido proporcionalmente entre lavagem/secagem só
+    // pra manter as colunas valor_lavagem/valor_secagem preenchidas de
+    // forma coerente; a mensagem pro cliente mostra o valor combinado.
+    const valorCestoEspecial = quantidadeCestos * regraHorario.valor_cesto;
+    const totalBase = precos.valor_lavagem_por_cesto + precos.valor_secagem_por_cesto;
+    const proporcaoLavagem = totalBase > 0 ? precos.valor_lavagem_por_cesto / totalBase : 0.5;
+    valorLavagem = valorCestoEspecial * proporcaoLavagem;
+    valorSecagem = valorCestoEspecial - valorLavagem;
+    detalhamento.push({
+      rotulo: `Lavagem + secagem — preço de horário especial (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(regraHorario.valor_cesto)})`,
+      valor: valorCestoEspecial,
+    });
+  } else {
+    valorLavagem = quantidadeCestos * precos.valor_lavagem_por_cesto;
+    valorSecagem = quantidadeCestos * precos.valor_secagem_por_cesto;
+    detalhamento.push(
+      {
+        rotulo: `Lavagem (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(precos.valor_lavagem_por_cesto)})`,
+        valor: valorLavagem,
+      },
+      {
+        rotulo: `Secagem (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(precos.valor_secagem_por_cesto)})`,
+        valor: valorSecagem,
+      },
+    );
+  }
+
+  const valorAtendente = precos.valor_atendente_por_pedido;
+  detalhamento.push({ rotulo: "Serviço da atendente", valor: valorAtendente });
 
   // Cada perna do trajeto (coleta e/ou entrega) é cobrada separadamente,
   // pela faixa de distância correspondente. Se qualquer perna não puder

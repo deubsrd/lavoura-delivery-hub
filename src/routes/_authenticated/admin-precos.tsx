@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { garantirVinculoAtendente } from "@/lib/atendentes.functions";
 import { PaginaHeader } from "@/components/pagina-header";
+import { formatarMoeda, horaCurta } from "@/lib/lavoura";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,13 @@ type ConfiguracaoPrecos = {
   valor_atendente_por_pedido: number;
 };
 type FaixaDelivery = { id: string; distancia_ate_km: number; valor: number };
+type PrecoHorario = {
+  id: string;
+  dia_semana: number;
+  hora_inicio: string;
+  hora_fim: string;
+  valor_cesto: number;
+};
 type PromocaoDiaSemana = {
   id: string;
   dia_semana: number;
@@ -114,6 +122,20 @@ function AdminPrecosPage() {
     },
   });
 
+  const precosHorario = useQuery({
+    queryKey: ["precos-horario", unidadeId],
+    enabled: !!unidadeId && souAdmin,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("precos_por_horario")
+        .select("*")
+        .eq("unidade_id", unidadeId!)
+        .order("dia_semana");
+      if (error) throw error;
+      return (data ?? []) as PrecoHorario[];
+    },
+  });
+
   if (atendente.isLoading) {
     return <main className="p-8 text-center text-sm text-muted-foreground">Carregando…</main>;
   }
@@ -148,6 +170,11 @@ function AdminPrecosPage() {
         unidadeId={unidadeId!}
         precos={precos.data ?? null}
         onSalvo={() => queryClient.invalidateQueries({ queryKey: ["config-precos", unidadeId] })}
+      />
+      <SecaoPrecosPorHorario
+        unidadeId={unidadeId!}
+        precosHorario={precosHorario.data ?? []}
+        onMudou={() => queryClient.invalidateQueries({ queryKey: ["precos-horario", unidadeId] })}
       />
       <SecaoFaixas
         unidadeId={unidadeId!}
@@ -220,6 +247,170 @@ function SecaoPrecosBase({
         {salvar.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
         Salvar preços
       </Button>
+    </section>
+  );
+}
+
+const DIA_ABREV = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+function SecaoPrecosPorHorario({
+  unidadeId,
+  precosHorario,
+  onMudou,
+}: {
+  unidadeId: string;
+  precosHorario: PrecoHorario[];
+  onMudou: () => void;
+}) {
+  const [diasSelecionados, setDiasSelecionados] = useState<Set<number>>(new Set());
+  const [horaInicio, setHoraInicio] = useState("00:00");
+  const [horaFim, setHoraFim] = useState("23:59");
+  const [valorCesto, setValorCesto] = useState("");
+
+  function alternarDia(dia: number) {
+    setDiasSelecionados((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(dia)) novo.delete(dia);
+      else novo.add(dia);
+      return novo;
+    });
+  }
+
+  const adicionar = useMutation({
+    mutationFn: async () => {
+      const linhas = [...diasSelecionados].map((dia) => ({
+        unidade_id: unidadeId,
+        dia_semana: dia,
+        hora_inicio: horaInicio,
+        hora_fim: horaFim,
+        valor_cesto: Number(valorCesto),
+      }));
+      const { error } = await supabase.from("precos_por_horario").insert(linhas);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setDiasSelecionados(new Set());
+      setValorCesto("");
+      onMudou();
+      toast.success("Preço por horário adicionado.");
+    },
+    onError: () => toast.error("Não foi possível adicionar o preço por horário."),
+  });
+
+  const remover = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("precos_por_horario").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: onMudou,
+    onError: () => toast.error("Não foi possível remover."),
+  });
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-2xl">Preços por dia e horário</h2>
+        <p className="text-sm text-muted-foreground">
+          Defina um preço diferente para o cesto (lavagem + secagem) numa janela de dias e
+          horários — por exemplo, terça-feira das 07h às 12h por R$ 13,90. Fora dessas janelas
+          valem os preços base acima.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3">
+        <div className="space-y-1.5">
+          <Label>Dias</Label>
+          <div className="flex gap-1">
+            {DIA_ABREV.map((letra, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => alternarDia(i)}
+                title={DIAS_SEMANA[i]}
+                className={`flex size-8 items-center justify-center rounded-full border text-xs font-medium transition ${
+                  diasSelecionados.has(i)
+                    ? "border-accent bg-accent/10 text-accent-foreground"
+                    : "bg-background hover:bg-secondary"
+                }`}
+              >
+                {letra}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Válido das</Label>
+          <Input
+            type="time"
+            className="w-28"
+            value={horaInicio}
+            onChange={(e) => setHoraInicio(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>até as</Label>
+          <Input
+            type="time"
+            className="w-28"
+            value={horaFim}
+            onChange={(e) => setHoraFim(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Preço do cesto (R$)</Label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            className="w-28"
+            value={valorCesto}
+            onChange={(e) => setValorCesto(e.target.value)}
+          />
+        </div>
+        <Button
+          onClick={() => adicionar.mutate()}
+          disabled={adicionar.isPending || diasSelecionados.size === 0 || !valorCesto}
+        >
+          {adicionar.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+          Adicionar
+        </Button>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-medium text-muted-foreground">Visão geral</h3>
+        <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {DIAS_SEMANA.map((nome, dia) => {
+            const regras = precosHorario.filter((r) => r.dia_semana === dia);
+            return (
+              <div key={nome} className="rounded-lg border bg-card p-3">
+                <p className="text-xs font-medium">{nome}</p>
+                {regras.length === 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">—</p>
+                ) : (
+                  <div className="mt-1 space-y-1">
+                    {regras.map((r) => (
+                      <div key={r.id} className="flex items-center justify-between gap-1 text-xs">
+                        <span>
+                          {horaCurta(r.hora_inicio)}–{horaCurta(r.hora_fim)} ·{" "}
+                          {formatarMoeda(r.valor_cesto)}
+                        </span>
+                        <button
+                          onClick={() => remover.mutate(r.id)}
+                          disabled={remover.isPending}
+                          aria-label="Remover"
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }

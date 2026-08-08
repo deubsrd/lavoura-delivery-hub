@@ -475,6 +475,51 @@ export type Database = {
           },
         ]
       }
+      precos_por_horario: {
+        Row: {
+          created_at: string
+          dia_semana: number
+          hora_fim: string
+          hora_inicio: string
+          id: string
+          unidade_id: string
+          valor_cesto: number
+        }
+        Insert: {
+          created_at?: string
+          dia_semana: number
+          hora_fim: string
+          hora_inicio: string
+          id?: string
+          unidade_id: string
+          valor_cesto: number
+        }
+        Update: {
+          created_at?: string
+          dia_semana?: number
+          hora_fim?: string
+          hora_inicio?: string
+          id?: string
+          unidade_id?: string
+          valor_cesto?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "precos_por_horario_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "unidades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "precos_por_horario_unidade_id_fkey"
+            columns: ["unidade_id"]
+            isOneToOne: false
+            referencedRelation: "unidades_publico"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promocoes_dia_semana: {
         Row: {
           aplica_em: Database["public"]["Enums"]["aplica_desconto_em"]
