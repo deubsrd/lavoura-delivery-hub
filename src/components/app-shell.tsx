@@ -41,8 +41,15 @@ export function AppShell() {
   const queryClient = useQueryClient();
 
   if (atendente.isLoading || !atendente.souAdmin) {
-    return <Outlet />;
+    return (
+      <SidebarProvider>
+        <SidebarInset>
+          <Outlet />
+        </SidebarInset>
+      </SidebarProvider>
+    );
   }
+
 
   async function sair() {
     await queryClient.cancelQueries();
