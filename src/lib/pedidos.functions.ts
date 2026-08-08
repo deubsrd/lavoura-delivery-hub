@@ -28,7 +28,9 @@ export type UnidadePublica = {
 };
 
 export const getUnidadeBySlug = createServerFn({ method: "GET" })
-  .inputValidator((data: { slug: string }) => z.object({ slug: z.string().min(1).max(80) }).parse(data))
+  .inputValidator((data: { slug: string }) =>
+    z.object({ slug: z.string().min(1).max(80) }).parse(data),
+  )
   .handler(async ({ data }): Promise<UnidadePublica | null> => {
     const { getPublicClient } = await import("./supabase-public.server");
     const supabase = getPublicClient();
@@ -70,6 +72,12 @@ export type HorariosPublico = {
   horarios: HorarioDiaPublico[];
   hora_limite_pedido: string;
   textoHoje: string;
+  // A unidade está aceitando pedidos normalmente agora (dentro do
+  // expediente e antes do horário-limite de pedido)? Usado pelo formulário
+  // pra decidir entre mostrar a grade de horários de coleta (regra: cliente
+  // escolhe o horário) ou pular direto pro aviso de "fora do horário,
+  // deseja agendar pro próximo horário livre?" — ver $slug.pedido.tsx.
+  atendendoAgora: boolean;
 };
 
 /**
@@ -78,7 +86,9 @@ export type HorariosPublico = {
  * servidor (fuso da unidade), não no browser do cliente.
  */
 export const obterHorariosPublico = createServerFn({ method: "GET" })
-  .inputValidator((data: { slug: string }) => z.object({ slug: z.string().min(1).max(80) }).parse(data))
+  .inputValidator((data: { slug: string }) =>
+    z.object({ slug: z.string().min(1).max(80) }).parse(data),
+  )
   .handler(async ({ data }): Promise<HorariosPublico> => {
     const unidade = await buscarUnidadeCompletaPorSlug(data.slug);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -89,15 +99,89 @@ export const obterHorariosPublico = createServerFn({ method: "GET" })
       .order("dia_semana");
     if (error) throw new Error(error.message);
 
-    const { diaSemanaLocal } = await import("./pedido-calculo.server");
+    const { diaSemanaLocal, pedidoForaDoHorarioAgora } = await import("./pedido-calculo.server");
     const { textoHorarioHoje } = await import("./lavoura");
-    const hoje = (horarios ?? []).find((h) => h.dia_semana === diaSemanaLocal(new Date())) ?? null;
+    const agora = new Date();
+    const hoje = (horarios ?? []).find((h) => h.dia_semana === diaSemanaLocal(agora)) ?? null;
 
     return {
       horarios: horarios ?? [],
       hora_limite_pedido: unidade.hora_limite_pedido,
       textoHoje: textoHorarioHoje(hoje),
+      atendendoAgora: !pedidoForaDoHorarioAgora(unidade, horarios ?? [], agora),
     };
+  });
+
+/**
+ * Horários de coleta já reservados por outros pedidos da unidade (a partir
+ * de agora — coletas passadas não interessam pra grade de disponibilidade).
+ * Pedidos cancelados liberam o horário de volta, por isso ficam de fora.
+ * Devolve um Set de epoch ms pra comparação O(1) contra os slots da grade.
+ */
+async function buscarHorariosOcupados(
+  supabaseAdmin: import("@supabase/supabase-js").SupabaseClient,
+  unidadeId: string,
+  agora: Date,
+): Promise<Set<number>> {
+  const { data, error } = await supabaseAdmin
+    .from("pedidos_delivery")
+    .select("horario_coleta")
+    .eq("unidade_id", unidadeId)
+    .neq("status", "cancelado")
+    .not("horario_coleta", "is", null)
+    .gte("horario_coleta", agora.toISOString());
+  if (error) throw new Error(error.message);
+  return new Set(
+    (data ?? [])
+      .map((linha) => (linha.horario_coleta ? new Date(linha.horario_coleta).getTime() : null))
+      .filter((v): v is number => v !== null),
+  );
+}
+
+export type DiaColetaPublico = import("./pedido-calculo.server").DiaColetaPublico;
+export type SlotColetaPublico = import("./pedido-calculo.server").SlotColetaPublico;
+
+/**
+ * Grade pública de horários de coleta disponíveis (regra: intervalo mínimo
+ * de 30 min entre coletas da unidade — ver DURACAO_SLOT_COLETA_MINUTOS em
+ * pedido-calculo.server.ts). `quantidade_cestos` entra no cálculo porque um
+ * pedido maior pode não caber num slot perto do fechamento (ver
+ * slotCabeNoMesmoDia). Só é chamada quando a unidade está atendendo agora —
+ * quando está fora do horário, o formulário pula direto pro fluxo de
+ * agendamento automático (ver criarPedido/montarResumo).
+ */
+export const obterSlotsColeta = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        slug: z.string().min(1).max(80),
+        quantidade_cestos: z.number().int().min(1).max(50),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }): Promise<DiaColetaPublico[]> => {
+    const unidade = await buscarUnidadeCompletaPorSlug(data.slug);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: horarios, error } = await supabaseAdmin
+      .from("horarios_unidade")
+      .select("dia_semana, ativo, hora_abertura, hora_fechamento")
+      .eq("unidade_id", unidade.id);
+    if (error) throw new Error(error.message);
+
+    const { gerarSlotsColetaDisponiveis, formatarSlotsColetaPublico } =
+      await import("./pedido-calculo.server");
+    const agora = new Date();
+    const ocupados = await buscarHorariosOcupados(supabaseAdmin, unidade.id, agora);
+    const DIAS_JANELA_PUBLICA = 6;
+    const dias = gerarSlotsColetaDisponiveis(
+      unidade,
+      horarios ?? [],
+      data.quantidade_cestos,
+      agora,
+      ocupados,
+      DIAS_JANELA_PUBLICA,
+    );
+    return formatarSlotsColetaPublico(dias);
   });
 
 export type ClienteEncontrado = {
@@ -186,7 +270,9 @@ export type PrecosBasePublico = {
  * detalhamento da Etapa 5 pra todo mundo.
  */
 export const obterPrecosBase = createServerFn({ method: "GET" })
-  .inputValidator((data: { slug: string }) => z.object({ slug: z.string().min(1).max(80) }).parse(data))
+  .inputValidator((data: { slug: string }) =>
+    z.object({ slug: z.string().min(1).max(80) }).parse(data),
+  )
   .handler(async ({ data }): Promise<PrecosBasePublico | null> => {
     const unidade = await buscarUnidadeCompletaPorSlug(data.slug);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -208,6 +294,11 @@ const resumoInputSchema = z.object({
   rua_entrega: z.string().trim().max(160).optional().nullable(),
   numero_entrega: z.string().trim().max(20).optional().nullable(),
   bairro_entrega: z.string().trim().max(120).optional().nullable(),
+  // Horário de coleta escolhido pelo cliente na grade de disponibilidade
+  // (obterSlotsColeta). Só é obrigatório quando a unidade está atendendo
+  // normalmente agora — quando está fora do horário, ninguém escolhe nada,
+  // o próximo horário livre é atribuído automaticamente (ver montarResumo).
+  horario_coleta: z.string().datetime().optional(),
   usar_proximo_dia_util: z.boolean().optional(),
 });
 
@@ -215,6 +306,15 @@ export type ResumoPedido = {
   distanciaKm: number | null;
   deliveryMensagemErro: string | null;
   foraDoHorario: boolean;
+  // Pedido feito com a unidade fechada (fora do horário de funcionamento no
+  // momento do envio) — regra de negócio: não exige aceite manual da
+  // atendente nem dispara o alerta sonoro (ver pedido_fora_do_horario e
+  // painel.tsx). Distinto de `foraDoHorario`: esse também fica true quando
+  // a unidade está aberta mas o horário de coleta escolhido não dá tempo de
+  // terminar o ciclo antes do fechamento — nesse caso o pedido some da fila
+  // normalmente, só precisa reagendar o horário.
+  pedidoForaDoHorario: boolean;
+  horarioColetaIso: string;
   baseUsadaIso: string;
   previstoIso: string;
   proximoHorarioUtilIso: string;
@@ -224,28 +324,53 @@ export type ResumoPedido = {
 
 async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   unidade: Awaited<ReturnType<typeof buscarUnidadeCompletaPorSlug>>;
+  horarios: import("./pedido-calculo.server").HorarioDia[];
   resumo: ResumoPedido;
   precoDetalhado: import("./pedido-calculo.server").ResumoPreco;
 }> {
   const unidade = await buscarUnidadeCompletaPorSlug(input.slug);
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { calcularPrazo, calcularProximoHorarioUtil, calcularPreco } = await import(
-    "./pedido-calculo.server"
-  );
+  const {
+    calcularPrazo,
+    calcularProximoHorarioUtil,
+    calcularPreco,
+    pedidoForaDoHorarioAgora,
+    primeiroSlotColetaLivre,
+  } = await import("./pedido-calculo.server");
   const { calcularDistanciaKm } = await import("./geolocalizacao.server");
 
-  const { data: horarios } = await supabaseAdmin
+  const { data: horariosData } = await supabaseAdmin
     .from("horarios_unidade")
     .select("dia_semana, ativo, hora_abertura, hora_fechamento")
     .eq("unidade_id", unidade.id);
+  const horarios = horariosData ?? [];
 
   const agora = new Date();
-  const baseDateTime = input.usar_proximo_dia_util
-    ? calcularProximoHorarioUtil(horarios ?? [], agora)
-    : agora;
+  const ocupados = await buscarHorariosOcupados(supabaseAdmin, unidade.id, agora);
+  const proximoSlotLivre =
+    primeiroSlotColetaLivre(unidade, horarios, input.quantidade_cestos, agora, ocupados, 21) ??
+    calcularProximoHorarioUtil(horarios, agora);
 
-  const prazo = calcularPrazo(unidade, horarios ?? [], input.quantidade_cestos, baseDateTime);
-  const proximoHorarioUtil = calcularProximoHorarioUtil(horarios ?? [], agora);
+  // "Fora do horário" pra fins da regra de negócio é sobre o instante em
+  // que o PEDIDO é feito, não sobre o horário de coleta escolhido (que
+  // pode ser um dia futuro mesmo com a unidade aberta agora). Só quando a
+  // unidade está fechada agora — ou o cliente já concordou em agendar numa
+  // rodada anterior — é que o horário de coleta é atribuído automaticamente
+  // em vez de vir da escolha do cliente.
+  const pedidoForaDoHorario = pedidoForaDoHorarioAgora(unidade, horarios, agora);
+  const precisaAtribuirAutomaticamente =
+    input.usar_proximo_dia_util === true || pedidoForaDoHorario;
+
+  let baseDateTime: Date;
+  if (precisaAtribuirAutomaticamente) {
+    baseDateTime = proximoSlotLivre;
+  } else {
+    if (!input.horario_coleta) throw new Error("Escolha o horário da coleta.");
+    baseDateTime = new Date(input.horario_coleta);
+    if (Number.isNaN(baseDateTime.getTime())) throw new Error("Horário de coleta inválido.");
+  }
+
+  const prazo = calcularPrazo(unidade, horarios, input.quantidade_cestos, baseDateTime);
 
   // O valor do delivery é cobrado uma vez por "perna" do trajeto: só
   // busca ou só entrega tem uma perna; busca_e_entrega tem duas — a
@@ -260,12 +385,18 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
     enderecoDestino: enderecoColeta,
   });
 
-  const tipoPernaUnica: "coleta" | "entrega" = input.tipo_servico === "entrega" ? "entrega" : "coleta";
+  const tipoPernaUnica: "coleta" | "entrega" =
+    input.tipo_servico === "entrega" ? "entrega" : "coleta";
   let pernas: { tipo: "coleta" | "entrega"; distanciaKm: number | null }[];
   let deliveryMensagemErro: string | null = distanciaColeta.ok ? null : distanciaColeta.mensagem;
 
   if (input.tipo_servico !== "busca_e_entrega") {
-    pernas = [{ tipo: tipoPernaUnica, distanciaKm: distanciaColeta.ok ? distanciaColeta.distanciaKm : null }];
+    pernas = [
+      {
+        tipo: tipoPernaUnica,
+        distanciaKm: distanciaColeta.ok ? distanciaColeta.distanciaKm : null,
+      },
+    ];
   } else {
     const mesmoEndereco = input.mesmo_endereco_entrega ?? true;
     let distanciaEntrega = distanciaColeta;
@@ -312,14 +443,22 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
 
   return {
     unidade,
+    horarios,
     precoDetalhado: preco,
     resumo: {
       distanciaKm: pernas[0]?.distanciaKm ?? null,
       deliveryMensagemErro: preco.deliveryIndisponivel ? deliveryMensagemErro : null,
-      foraDoHorario: prazo.foraDoHorario,
+      // Além da unidade fechada agora, um horário de coleta escolhido perto
+      // do fechamento que estoure o prazo do ciclo também força reagendar
+      // (ver slotCabeNoMesmoDia — na prática a grade de obterSlotsColeta já
+      // não oferece esses horários, isso é só defesa contra um client que
+      // pule a grade e mande um horario_coleta arbitrário).
+      foraDoHorario: pedidoForaDoHorario || prazo.foraDoHorario,
+      pedidoForaDoHorario,
+      horarioColetaIso: baseDateTime.toISOString(),
       baseUsadaIso: prazo.baseUsada.toISOString(),
       previstoIso: prazo.previsto.toISOString(),
-      proximoHorarioUtilIso: proximoHorarioUtil.toISOString(),
+      proximoHorarioUtilIso: proximoSlotLivre.toISOString(),
       detalhamento: preco.detalhamento,
       valorTotal: preco.valorTotal,
     },
@@ -353,6 +492,7 @@ export const pedidoSchema = z
     bairro_entrega: z.string().trim().max(120).optional().nullable(),
     complemento_entrega: z.string().trim().max(160).optional().nullable(),
     referencia_entrega: z.string().trim().max(200).optional().nullable(),
+    horario_coleta: z.string().datetime().optional(),
     usar_proximo_dia_util: z.boolean().optional(),
     // Honeypot anti-spam: precisa vir vazio.
     armadilha: z.string().max(0).optional(),
@@ -394,7 +534,7 @@ export const criarPedido = createServerFn({ method: "POST" })
       request?.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       "desconhecido";
 
-    const { unidade, resumo, precoDetalhado } = await montarResumo({
+    const { unidade, horarios, resumo, precoDetalhado } = await montarResumo({
       slug: data.slug,
       quantidade_cestos: data.quantidade_cestos,
       tipo_servico: data.tipo_servico,
@@ -407,6 +547,7 @@ export const criarPedido = createServerFn({ method: "POST" })
       rua_entrega: data.rua_entrega,
       numero_entrega: data.numero_entrega,
       bairro_entrega: data.bairro_entrega,
+      horario_coleta: data.horario_coleta,
       usar_proximo_dia_util: data.usar_proximo_dia_util,
     });
 
@@ -415,8 +556,22 @@ export const criarPedido = createServerFn({ method: "POST" })
     // nunca é aceito, mesmo que o client tenha calculado outra coisa.
     if (!data.usar_proximo_dia_util && resumo.foraDoHorario) {
       throw new Error(
-        "Fora do horário de atendimento para hoje. Volte e escolha agendar para o próximo dia útil.",
+        "Fora do horário de atendimento para hoje. Volte e escolha agendar para o próximo horário livre.",
       );
+    }
+
+    // Defesa extra pro caminho manual (regra do intervalo de 30 min entre
+    // coletas): o horário devolvido por montarResumo precisa realmente
+    // estar alinhado à grade de slots — protege contra um client que pule
+    // obterSlotsColeta e mande um horario_coleta arbitrário. Concorrência
+    // real (dois clientes fechando o mesmo slot ao mesmo tempo) é resolvida
+    // pelo índice único no banco (idx_pedidos_unidade_horario_coleta),
+    // tratado no catch do insert logo abaixo.
+    if (!data.usar_proximo_dia_util) {
+      const { slotAlinhadoAGrade } = await import("./pedido-calculo.server");
+      if (!slotAlinhadoAGrade(horarios, new Date(), new Date(resumo.horarioColetaIso))) {
+        throw new Error("Horário de coleta inválido. Volte e escolha novamente.");
+      }
     }
 
     const cpf = soDigitosCpf(data.cpf);
@@ -453,7 +608,9 @@ export const criarPedido = createServerFn({ method: "POST" })
       .eq("ip_origem", ip)
       .gte("created_at", quinzeMin);
     if ((porIp ?? 0) >= 5) {
-      throw new Error("Muitos pedidos enviados deste dispositivo. Tente novamente em alguns minutos.");
+      throw new Error(
+        "Muitos pedidos enviados deste dispositivo. Tente novamente em alguns minutos.",
+      );
     }
 
     const { count: porTelefone } = await supabaseAdmin
@@ -494,6 +651,8 @@ export const criarPedido = createServerFn({ method: "POST" })
         status: "recebido" as const,
         data_pedido: agora.toISOString(),
         data_prevista_retorno: resumo.previstoIso,
+        horario_coleta: resumo.horarioColetaIso,
+        pedido_fora_do_horario: resumo.pedidoForaDoHorario,
         ip_origem: ip,
         valor_lavagem: precoDetalhado.valorLavagem,
         valor_secagem: precoDetalhado.valorSecagem,
@@ -504,10 +663,21 @@ export const criarPedido = createServerFn({ method: "POST" })
         distancia_km: resumo.distanciaKm,
         valor_total: resumo.valorTotal,
       })
-      .select("id, data_prevista_retorno, data_pedido")
+      .select("id, data_prevista_retorno, data_pedido, horario_coleta")
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      // Índice único idx_pedidos_unidade_horario_coleta: outro pedido
+      // fechou esse exato horário entre o cliente escolher o slot e
+      // confirmar o pedido. Mensagem amigável em vez do erro cru do
+      // Postgres — o client deve voltar pra escolha de horário.
+      if (error.code === "23505") {
+        throw new Error(
+          "Esse horário de coleta acabou de ser reservado por outro cliente. Volte e escolha outro horário.",
+        );
+      }
+      throw new Error(error.message);
+    }
 
     await supabaseAdmin
       .from("clientes")
@@ -538,6 +708,8 @@ export const criarPedido = createServerFn({ method: "POST" })
     return {
       id: pedido.id,
       data_prevista_retorno: pedido.data_prevista_retorno,
+      horario_coleta: pedido.horario_coleta,
+      pedido_fora_do_horario: resumo.pedidoForaDoHorario,
       unidade_nome: unidade.nome,
       detalhamento: resumo.detalhamento,
       valor_total: resumo.valorTotal,

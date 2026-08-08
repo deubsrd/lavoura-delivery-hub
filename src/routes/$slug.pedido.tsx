@@ -13,14 +13,18 @@ import {
   getUnidadeBySlug,
   obterHorariosPublico,
   obterPrecosBase,
+  obterSlotsColeta,
   type ClienteEncontrado,
+  type DiaColetaPublico,
   type ResumoPedido,
 } from "@/lib/pedidos.functions";
 import { isValidCpf, maskCpf, soDigitosCpf } from "@/lib/cpf";
 import {
+  DIA_SEMANA_LABEL,
   TIPO_SERVICO_LABEL,
   formatarDataHora,
   formatarMoeda,
+  horaCurta,
   maskTelefone,
   type TipoServico,
 } from "@/lib/lavoura";
@@ -119,6 +123,7 @@ function PedidoPage() {
   const enviarPedidoFn = useServerFn(criarPedido);
   const obterPrecosBaseFn = useServerFn(obterPrecosBase);
   const obterHorariosPublicoFn = useServerFn(obterHorariosPublico);
+  const obterSlotsColetaFn = useServerFn(obterSlotsColeta);
 
   // Preços base (lavagem/secagem/atendente) buscados uma vez, pra mostrar
   // uma prévia de valor "ao vivo" na Etapa 4 conforme a quantidade de
@@ -134,6 +139,14 @@ function PedidoPage() {
     queryFn: () => obterHorariosPublicoFn({ data: { slug: unidade.slug } }),
   });
 
+  // A unidade só aceita escolha manual de horário de coleta enquanto está
+  // atendendo normalmente (dentro do expediente, antes do horário-limite de
+  // pedido). Fora disso o formulário nem pergunta — pula direto pro aviso
+  // de "fora do horário" na Etapa 5, que agenda automaticamente pro
+  // próximo horário livre (ver EtapaResumo). Enquanto ainda não sabemos
+  // (carregando), não exige escolha pra não travar o fluxo à toa.
+  const precisaEscolherHorario = horariosPublico.data?.atendendoAgora === true;
+
   const [etapa, setEtapa] = useState<Etapa>(1);
   const [pilha, setPilha] = useState<Etapa[]>([]);
   const [fase1, setFase1] = useState<"cpf" | "confirmar-endereco">("cpf");
@@ -147,6 +160,26 @@ function PedidoPage() {
   const [coleta, setColeta] = useState<Endereco>(enderecoVazio);
   const [entrega, setEntrega] = useState<Endereco>(enderecoVazio);
   const [cestos, setCestos] = useState(1);
+
+  // Horário de coleta escolhido pelo cliente (ISO). Some intervalo mínimo
+  // de 30 min entre coletas da unidade — a grade abaixo já só oferece
+  // horários livres, ver obterSlotsColeta.
+  const slotsColeta = useQuery({
+    queryKey: ["slots-coleta", unidade.slug, cestos],
+    queryFn: () => obterSlotsColetaFn({ data: { slug: unidade.slug, quantidade_cestos: cestos } }),
+    enabled: precisaEscolherHorario,
+  });
+  const [horarioColeta, setHorarioColeta] = useState<string | null>(null);
+  const [diaColetaSelecionado, setDiaColetaSelecionado] = useState<string | null>(null);
+
+  function ajustarCestos(delta: number) {
+    setCestos((c) => Math.min(50, Math.max(1, c + delta)));
+    // A grade de horários depende da quantidade de cestos (um pedido maior
+    // pode não caber mais no slot escolhido perto do fechamento) — melhor
+    // pedir pra escolher de novo do que manter uma escolha que já pode não
+    // valer mais.
+    setHorarioColeta(null);
+  }
 
   const estimativaCestos = useMemo(() => {
     if (!precosBase.data) return null;
@@ -169,6 +202,7 @@ function PedidoPage() {
 
   const [confirmado, setConfirmado] = useState<{
     data_prevista_retorno: string | null;
+    horario_coleta: string | null;
     detalhamento: { rotulo: string; valor: number }[];
     valor_total: number;
   } | null>(null);
@@ -192,7 +226,8 @@ function PedidoPage() {
   }
 
   const buscaCpfMutation = useMutation({
-    mutationFn: (cpfLimpo: string) => buscarCliente({ data: { slug: unidade.slug, cpf: cpfLimpo } }),
+    mutationFn: (cpfLimpo: string) =>
+      buscarCliente({ data: { slug: unidade.slug, cpf: cpfLimpo } }),
     onSuccess: (cliente) => {
       if (cliente && cliente.ultima_rua) {
         setClienteEncontrado(cliente);
@@ -296,6 +331,7 @@ function PedidoPage() {
           rua_entrega: entrega.rua || null,
           numero_entrega: entrega.numero || null,
           bairro_entrega: entrega.bairro || null,
+          horario_coleta: horarioColeta ?? undefined,
           usar_proximo_dia_util: usarProximoDia,
         },
       }),
@@ -317,6 +353,9 @@ function PedidoPage() {
         if (!entrega.numero.trim()) e["numero_entrega"] = "Obrigatório";
         if (!entrega.bairro.trim()) e["bairro_entrega"] = "Obrigatório";
       }
+    }
+    if (precisaEscolherHorario && !horarioColeta) {
+      e["horario_coleta"] = "Escolha o horário da coleta";
     }
     setErros(e);
     if (Object.keys(e).length > 0) return;
@@ -345,6 +384,7 @@ function PedidoPage() {
           bairro_entrega: entrega.bairro || null,
           complemento_entrega: entrega.complemento || null,
           referencia_entrega: entrega.referencia || null,
+          horario_coleta: horarioColeta ?? undefined,
           usar_proximo_dia_util: usarProximoDiaUtil,
           armadilha,
         },
@@ -352,6 +392,7 @@ function PedidoPage() {
     onSuccess: (res) => {
       setConfirmado({
         data_prevista_retorno: res.data_prevista_retorno,
+        horario_coleta: res.horario_coleta,
         detalhamento: res.detalhamento,
         valor_total: res.valor_total,
       });
@@ -374,8 +415,17 @@ function PedidoPage() {
             <Resumo rotulo="Nome" valor={nome || clienteEncontrado?.nome_completo || ""} />
             <Resumo rotulo="Serviço" valor={TIPO_SERVICO_LABEL[tipo as TipoServico]} />
             <Resumo rotulo="Cestos" valor={String(cestos)} />
-            <Resumo rotulo={tituloEndereco} valor={`${coleta.rua}, ${coleta.numero} — ${coleta.bairro}`} />
+            <Resumo
+              rotulo={tituloEndereco}
+              valor={`${coleta.rua}, ${coleta.numero} — ${coleta.bairro}`}
+            />
             {observacoes ? <Resumo rotulo="Observações" valor={observacoes} /> : null}
+            {confirmado.horario_coleta ? (
+              <Resumo
+                rotulo="Horário de coleta"
+                valor={formatarDataHora(confirmado.horario_coleta)}
+              />
+            ) : null}
             {confirmado.data_prevista_retorno ? (
               <Resumo
                 rotulo="Previsão de retorno"
@@ -388,7 +438,9 @@ function PedidoPage() {
             {confirmado.detalhamento.map((item) => (
               <div key={item.rotulo} className="flex justify-between gap-4">
                 <span className="text-muted-foreground">{item.rotulo}</span>
-                <span className={item.valor < 0 ? "text-accent" : ""}>{formatarMoeda(item.valor)}</span>
+                <span className={item.valor < 0 ? "text-accent" : ""}>
+                  {formatarMoeda(item.valor)}
+                </span>
               </div>
             ))}
             <div className="mt-2 flex justify-between border-t pt-2 font-medium">
@@ -452,31 +504,46 @@ function PedidoPage() {
         ) : null}
 
         {etapa === 1 && fase1 === "confirmar-endereco" && clienteEncontrado ? (
-          <Bloco titulo={`Bem-vindo(a) de volta, ${clienteEncontrado.nome_completo.split(" ")[0]}!`}>
-            <p className="text-sm text-muted-foreground">Usar o mesmo endereço de coleta e entrega da última vez?</p>
+          <Bloco
+            titulo={`Bem-vindo(a) de volta, ${clienteEncontrado.nome_completo.split(" ")[0]}!`}
+          >
+            <p className="text-sm text-muted-foreground">
+              Usar o mesmo endereço de coleta e entrega da última vez?
+            </p>
             <div className="rounded-lg border bg-card p-3 text-sm">
               <p className="font-medium">Coleta</p>
-              <p className="text-muted-foreground">{enderecoPorExtenso({
-                rua: clienteEncontrado.ultima_rua,
-                numero: clienteEncontrado.ultimo_numero,
-                bairro: clienteEncontrado.ultimo_bairro,
-              })}</p>
+              <p className="text-muted-foreground">
+                {enderecoPorExtenso({
+                  rua: clienteEncontrado.ultima_rua,
+                  numero: clienteEncontrado.ultimo_numero,
+                  bairro: clienteEncontrado.ultimo_bairro,
+                })}
+              </p>
               {clienteEncontrado.ultimo_mesmo_endereco_entrega === false ? (
                 <>
                   <p className="mt-2 font-medium">Entrega</p>
-                  <p className="text-muted-foreground">{enderecoPorExtenso({
-                    rua: clienteEncontrado.ultima_rua_entrega,
-                    numero: clienteEncontrado.ultimo_numero_entrega,
-                    bairro: clienteEncontrado.ultimo_bairro_entrega,
-                  })}</p>
+                  <p className="text-muted-foreground">
+                    {enderecoPorExtenso({
+                      rua: clienteEncontrado.ultima_rua_entrega,
+                      numero: clienteEncontrado.ultimo_numero_entrega,
+                      bairro: clienteEncontrado.ultimo_bairro_entrega,
+                    })}
+                  </p>
                 </>
               ) : null}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => usarEnderecoAnterior(false)}>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => usarEnderecoAnterior(false)}
+              >
                 Não, usar outro
               </Button>
-              <Button className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90" onClick={() => usarEnderecoAnterior(true)}>
+              <Button
+                className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
+                onClick={() => usarEnderecoAnterior(true)}
+              >
                 Sim, usar o mesmo
               </Button>
             </div>
@@ -486,7 +553,11 @@ function PedidoPage() {
         {etapa === 2 ? (
           <Bloco titulo="Seus dados">
             <Campo rotulo="Nome completo" erro={erros["nome"]}>
-              <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Maria Silva" />
+              <Input
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Maria Silva"
+              />
             </Campo>
             <Campo rotulo="Telefone / WhatsApp" erro={erros["telefone"]}>
               <Input
@@ -497,13 +568,17 @@ function PedidoPage() {
               />
             </Campo>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={voltar}>Voltar</Button>
+              <Button variant="outline" onClick={voltar}>
+                Voltar
+              </Button>
               <Button
                 onClick={confirmarDadosNovos}
                 disabled={criarClienteMutation.isPending}
                 className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
               >
-                {criarClienteMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+                {criarClienteMutation.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : null}
                 Continuar
               </Button>
             </div>
@@ -518,8 +593,13 @@ function PedidoPage() {
               erros={{ rua: erros["rua"], numero: erros["numero"], bairro: erros["bairro"] }}
             />
             <div className="flex gap-2">
-              <Button variant="outline" onClick={voltar}>Voltar</Button>
-              <Button onClick={confirmarEndereco} className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90">
+              <Button variant="outline" onClick={voltar}>
+                Voltar
+              </Button>
+              <Button
+                onClick={confirmarEndereco}
+                className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+              >
                 Continuar
               </Button>
             </div>
@@ -530,11 +610,23 @@ function PedidoPage() {
           <Bloco titulo="Sobre o pedido">
             <Campo rotulo="Quantidade aproximada de cestos">
               <div className="flex items-center gap-3">
-                <Button type="button" variant="outline" size="icon" onClick={() => setCestos((c) => Math.max(1, c - 1))} aria-label="Diminuir cestos">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => ajustarCestos(-1)}
+                  aria-label="Diminuir cestos"
+                >
                   <Minus className="size-4" />
                 </Button>
                 <span className="w-10 text-center font-display text-2xl">{cestos}</span>
-                <Button type="button" variant="outline" size="icon" onClick={() => setCestos((c) => Math.min(50, c + 1))} aria-label="Aumentar cestos">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => ajustarCestos(1)}
+                  aria-label="Aumentar cestos"
+                >
                   <Plus className="size-4" />
                 </Button>
               </div>
@@ -550,7 +642,9 @@ function PedidoPage() {
                   <span className="text-muted-foreground">
                     Lavagem + secagem ({cestos} {cestos === 1 ? "cesto" : "cestos"})
                   </span>
-                  <span className="font-medium">{formatarMoeda(estimativaCestos.lavagemSecagem)}</span>
+                  <span className="font-medium">
+                    {formatarMoeda(estimativaCestos.lavagemSecagem)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>+ Serviço da atendente</span>
@@ -566,6 +660,19 @@ function PedidoPage() {
               </div>
             ) : null}
 
+            {precisaEscolherHorario ? (
+              <Campo rotulo="Horário da coleta" erro={erros["horario_coleta"]}>
+                <SeletorHorarioColeta
+                  dias={slotsColeta.data ?? []}
+                  carregando={slotsColeta.isPending}
+                  diaSelecionado={diaColetaSelecionado}
+                  onSelecionarDia={setDiaColetaSelecionado}
+                  horarioSelecionado={horarioColeta}
+                  onSelecionarHorario={setHorarioColeta}
+                />
+              </Campo>
+            ) : null}
+
             <Campo rotulo="Tipo de serviço" erro={erros["tipo"]}>
               <div className="grid gap-2">
                 {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((opcao) => (
@@ -577,7 +684,9 @@ function PedidoPage() {
                       if (opcao !== "busca_e_entrega") setMesmoEnderecoEntrega(null);
                     }}
                     className={`rounded-lg border p-3 text-left text-sm transition ${
-                      tipo === opcao ? "border-accent bg-accent/10 font-medium" : "bg-card hover:bg-secondary"
+                      tipo === opcao
+                        ? "border-accent bg-accent/10 font-medium"
+                        : "bg-card hover:bg-secondary"
                     }`}
                   >
                     <span className="block">{TIPO_SERVICO_LABEL[opcao]}</span>
@@ -594,15 +703,23 @@ function PedidoPage() {
             </Campo>
 
             {tipo === "busca_e_entrega" ? (
-              <Campo rotulo="O endereço de entrega é o mesmo da coleta?" erro={erros["mesmoEndereco"]}>
+              <Campo
+                rotulo="O endereço de entrega é o mesmo da coleta?"
+                erro={erros["mesmoEndereco"]}
+              >
                 <div className="flex gap-2">
-                  {[{ label: "Sim", valor: true }, { label: "Não", valor: false }].map((op) => (
+                  {[
+                    { label: "Sim", valor: true },
+                    { label: "Não", valor: false },
+                  ].map((op) => (
                     <button
                       key={op.label}
                       type="button"
                       onClick={() => setMesmoEnderecoEntrega(op.valor)}
                       className={`flex-1 rounded-lg border p-3 text-sm transition ${
-                        mesmoEnderecoEntrega === op.valor ? "border-accent bg-accent/10 font-medium" : "bg-card hover:bg-secondary"
+                        mesmoEnderecoEntrega === op.valor
+                          ? "border-accent bg-accent/10 font-medium"
+                          : "bg-card hover:bg-secondary"
                       }`}
                     >
                       {op.label}
@@ -618,7 +735,11 @@ function PedidoPage() {
                 <BlocoEndereco
                   valor={entrega}
                   onChange={setEntrega}
-                  erros={{ rua: erros["rua_entrega"], numero: erros["numero_entrega"], bairro: erros["bairro_entrega"] }}
+                  erros={{
+                    rua: erros["rua_entrega"],
+                    numero: erros["numero_entrega"],
+                    bairro: erros["bairro_entrega"],
+                  }}
                 />
               </div>
             ) : null}
@@ -633,7 +754,9 @@ function PedidoPage() {
             </Campo>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={voltar}>Voltar</Button>
+              <Button variant="outline" onClick={voltar}>
+                Voltar
+              </Button>
               <Button
                 onClick={confirmarDadosPedido}
                 disabled={resumoMutation.isPending}
@@ -662,7 +785,12 @@ function PedidoPage() {
         <div className="hidden" aria-hidden="true">
           <label>
             Não preencha
-            <input tabIndex={-1} autoComplete="off" value={armadilha} onChange={(e) => setArmadilha(e.target.value)} />
+            <input
+              tabIndex={-1}
+              autoComplete="off"
+              value={armadilha}
+              onChange={(e) => setArmadilha(e.target.value)}
+            />
           </label>
         </div>
       </div>
@@ -707,10 +835,10 @@ function EtapaResumo({
 }) {
   if (resumo.foraDoHorario && !usarProximoDiaUtil) {
     return (
-      <Bloco titulo="Sem tempo hábil hoje">
+      <Bloco titulo="Fora do horário de atendimento">
         <p className="text-sm text-muted-foreground">
-          Não conseguimos concluir esse pedido ainda hoje dentro do nosso horário de atendimento.
-          Deseja agendar para o próximo horário útil, a partir de{" "}
+          Não conseguimos encaixar esse pedido no nosso horário de atendimento agora. Deseja agendar
+          automaticamente para o próximo horário livre, em{" "}
           {formatarDataHora(resumo.proximoHorarioUtilIso)}?
         </p>
         <div className="flex gap-2">
@@ -750,11 +878,16 @@ function EtapaResumo({
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
+        Horário de coleta: {formatarDataHora(resumo.horarioColetaIso)}
+        {usarProximoDiaUtil ? " (agendado automaticamente)" : ""}
+      </p>
+      <p className="text-sm text-muted-foreground">
         Previsão de retorno: {formatarDataHora(resumo.previstoIso)}
-        {usarProximoDiaUtil ? " (agendado)" : ""}
       </p>
       <div className="flex gap-2">
-        <Button variant="outline" onClick={onVoltar}>Voltar</Button>
+        <Button variant="outline" onClick={onVoltar}>
+          Voltar
+        </Button>
         <Button
           onClick={onConfirmar}
           disabled={enviando}
@@ -853,6 +986,91 @@ function BlocoEndereco({
       <div className="space-y-1.5">
         <Label>Ponto de referência (opcional)</Label>
         <Input value={valor.referencia} onChange={set("referencia")} />
+      </div>
+    </div>
+  );
+}
+
+/** "2026-08-10" -> "seg. 10/08" (dia da semana abreviado + dia/mês). */
+function rotuloDiaColeta(dia: DiaColetaPublico): string {
+  const [, mes, diaDoMes] = dia.data.split("-");
+  const nomeDia = DIA_SEMANA_LABEL[dia.diaSemana]?.slice(0, 3).toLowerCase() ?? "";
+  return `${nomeDia}. ${diaDoMes}/${mes}`;
+}
+
+/**
+ * Grade de horários de coleta: primeiro escolhe o dia (abas), depois o
+ * horário dentro daquele dia (múltiplos de 30 min — ver
+ * DURACAO_SLOT_COLETA_MINUTOS em pedido-calculo.server.ts). Só mostra
+ * horários já livres — a disponibilidade é recalculada no servidor a cada
+ * pedido concluído, então a lista pode mudar entre uma visita e outra.
+ */
+function SeletorHorarioColeta({
+  dias,
+  carregando,
+  diaSelecionado,
+  onSelecionarDia,
+  horarioSelecionado,
+  onSelecionarHorario,
+}: {
+  dias: DiaColetaPublico[];
+  carregando: boolean;
+  diaSelecionado: string | null;
+  onSelecionarDia: (data: string) => void;
+  horarioSelecionado: string | null;
+  onSelecionarHorario: (horarioIso: string) => void;
+}) {
+  if (carregando) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Carregando horários disponíveis…
+      </p>
+    );
+  }
+
+  if (dias.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Não há horários de coleta disponíveis no momento. Volte em instantes ou fale com a unidade.
+      </p>
+    );
+  }
+
+  const diaAtual = dias.find((d) => d.data === diaSelecionado) ?? dias[0]!;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {dias.map((dia) => (
+          <button
+            key={dia.data}
+            type="button"
+            onClick={() => onSelecionarDia(dia.data)}
+            className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              dia.data === diaAtual.data
+                ? "border-accent bg-accent/10 text-accent-foreground"
+                : "bg-card hover:bg-secondary"
+            }`}
+          >
+            {rotuloDiaColeta(dia)}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {diaAtual.slots.map((slot) => (
+          <button
+            key={slot.inicioIso}
+            type="button"
+            onClick={() => onSelecionarHorario(slot.inicioIso)}
+            className={`rounded-lg border py-2 text-sm transition ${
+              slot.inicioIso === horarioSelecionado
+                ? "border-accent bg-accent/10 font-medium"
+                : "bg-card hover:bg-secondary"
+            }`}
+          >
+            {horaCurta(slot.horaLocal)}
+          </button>
+        ))}
       </div>
     </div>
   );

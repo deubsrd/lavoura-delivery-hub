@@ -1,16 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   AlertTriangle,
   ArrowRight,
+  BellRing,
+  CalendarClock,
   LogOut,
   MessageCircle,
   PackageCheck,
   Search,
   Settings,
   Truck,
+  VolumeX,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +21,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { garantirVinculoAtendente } from "@/lib/atendentes.functions";
 import { notificarMudancaStatus } from "@/lib/pedidos.functions";
+import { useOrderAlertSound } from "@/hooks/use-order-alert-sound";
 import {
   FLUXO_STATUS,
   STATUS_LABEL,
@@ -54,7 +58,8 @@ export const Route = createFileRoute("/_authenticated/painel")({
       { title: "Painel de pedidos — Lavoura" },
       {
         name: "description",
-        content: "Kanban de pedidos de busca e entrega da unidade, com filtros e atualização em tempo real.",
+        content:
+          "Kanban de pedidos de busca e entrega da unidade, com filtros e atualização em tempo real.",
       },
       { property: "og:title", content: "Painel de pedidos — Lavoura" },
       { property: "og:description", content: "Gestão da fila de delivery da unidade Lavoura." },
@@ -87,6 +92,8 @@ type Pedido = {
   motoboy_nome: string | null;
   data_pedido: string;
   data_prevista_retorno: string | null;
+  horario_coleta: string | null;
+  pedido_fora_do_horario: boolean;
   distancia_km: number | null;
   desconto_descricao: string | null;
   valor_total: number | null;
@@ -160,6 +167,56 @@ function PainelPage() {
       supabase.removeChannel(channel);
     };
   }, [queryClient]);
+
+  // Pedidos ainda não aceitos nem recusados: tudo que chega entra como
+  // "recebido" e só sai desse status quando a atendente avança (aceita) ou
+  // cancela (recusa). Pedidos feitos com a unidade fechada
+  // (pedido_fora_do_horario, ver pedidos.functions.ts) ficam de fora dessa
+  // fila mesmo estando em "recebido": foram agendados automaticamente pro
+  // próximo horário livre e não exigem aceite manual nem tocam o alerta
+  // sonoro — a atendente ainda pode encontrá-los e avançá-los normalmente
+  // pela coluna "Pedido recebido", só não é cobrada a agir imediatamente.
+  const pedidosRecebidos = useMemo(
+    () => (pedidos.data ?? []).filter((p) => p.status === "recebido" && !p.pedido_fora_do_horario),
+    [pedidos.data],
+  );
+  const idsRecebidos = useMemo(() => pedidosRecebidos.map((p) => p.id), [pedidosRecebidos]);
+  const alerta = useOrderAlertSound(pedidosRecebidos.length, idsRecebidos);
+
+  // Toast avisando cada pedido novo assim que ele chega (uma vez por id) —
+  // o som já chama atenção pro fato de "tem algo pendente", o toast conta
+  // o quê.
+  const vistosRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (vistosRef.current === null) {
+      vistosRef.current = new Set(idsRecebidos);
+      return;
+    }
+    for (const p of pedidosRecebidos) {
+      if (!vistosRef.current.has(p.id)) {
+        toast.info(`Novo pedido de ${p.nome_completo}`, {
+          description: `${TIPO_SERVICO_LABEL[p.tipo_servico]} · ${p.quantidade_cestos} ${p.quantidade_cestos === 1 ? "cesto" : "cestos"}`,
+        });
+      }
+    }
+    vistosRef.current = new Set(idsRecebidos);
+  }, [pedidosRecebidos, idsRecebidos]);
+
+  // Título da aba pisca enquanto o alerta está tocando, pra chamar atenção
+  // mesmo se a atendente estiver com o painel em outra aba do navegador.
+  useEffect(() => {
+    if (typeof document === "undefined" || !alerta.isRinging) return;
+    const original = document.title;
+    let visivel = false;
+    const id = setInterval(() => {
+      document.title = visivel ? original : "🔔 Novo pedido! — Lavoura";
+      visivel = !visivel;
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      document.title = original;
+    };
+  }, [alerta.isRinging]);
 
   const lista = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -238,9 +295,7 @@ function PainelPage() {
   }
 
   const unidade = atendente.data?.unidades as
-    | { nome: string; cidade: string; prazo_padrao_horas: number }
-    | null
-    | undefined;
+    { nome: string; cidade: string; prazo_padrao_horas: number } | null | undefined;
 
   return (
     <div className="min-h-screen bg-background">
@@ -285,6 +340,26 @@ function PainelPage() {
           </div>
         </div>
       </header>
+
+      {alerta.isRinging ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-destructive px-4 py-2 text-sm text-destructive-foreground">
+          <span className="flex items-center gap-2 font-medium">
+            <BellRing className="size-4 animate-pulse" />
+            {pedidosRecebidos.length === 1
+              ? "1 pedido novo aguardando aceite"
+              : `${pedidosRecebidos.length} pedidos novos aguardando aceite`}
+            {alerta.audioBloqueado ? " · clique em qualquer lugar da página pra ativar o som" : ""}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={alerta.silenciar}
+            className="h-7 text-destructive-foreground hover:bg-destructive-foreground/10"
+          >
+            <VolumeX className="size-4" /> Silenciar
+          </Button>
+        </div>
+      ) : null}
 
       {!atendente.isLoading && !atendente.data ? (
         <div className="mx-auto mt-8 max-w-lg rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
@@ -472,9 +547,18 @@ function PainelPage() {
 
                 <div className="grid gap-1 rounded-lg bg-secondary p-3 text-xs">
                   <span>Pedido feito em {formatarDataHora(detalhe.data_pedido)}</span>
+                  {detalhe.horario_coleta ? (
+                    <span>Horário de coleta: {formatarDataHora(detalhe.horario_coleta)}</span>
+                  ) : null}
                   {detalhe.data_prevista_retorno ? (
                     <span>
                       Previsão de retorno: {formatarDataHora(detalhe.data_prevista_retorno)}
+                    </span>
+                  ) : null}
+                  {detalhe.pedido_fora_do_horario ? (
+                    <span className="text-accent">
+                      Pedido feito fora do horário de atendimento — agendado automaticamente, não
+                      precisou de aceite imediato.
                     </span>
                   ) : null}
                   {detalhe.motivo_cancelamento ? (
@@ -559,9 +643,7 @@ function Endereco({
   destaque?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-lg border p-3 ${destaque ? "border-accent bg-accent/10" : "bg-card"}`}
-    >
+    <div className={`rounded-lg border p-3 ${destaque ? "border-accent bg-accent/10" : "bg-card"}`}>
       <p className="font-medium">{titulo}</p>
       <p className="text-muted-foreground">
         {rua}, {numero} — {bairro}
@@ -588,7 +670,11 @@ function MotoboyForm({
     <div className="space-y-1.5">
       <Label>Motoboy responsável</Label>
       <div className="flex gap-2">
-        <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do motoboy" />
+        <Input
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+          placeholder="Nome do motoboy"
+        />
         <Button variant="outline" onClick={() => onSalvar(pedido, nome.trim())}>
           Salvar
         </Button>
@@ -636,6 +722,17 @@ function Card({
           {pedido.quantidade_cestos} {pedido.quantidade_cestos === 1 ? "cesto" : "cestos"} ·{" "}
           {tempoRelativo(pedido.data_pedido)}
         </p>
+        {pedido.horario_coleta ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Coleta: {formatarDataHora(pedido.horario_coleta)}
+          </p>
+        ) : null}
+        {pedido.pedido_fora_do_horario ? (
+          <p className="mt-2 flex items-center gap-1 text-xs font-medium text-accent">
+            <CalendarClock className="size-3" /> Agendado fora do horário — não exige aceite
+            imediato
+          </p>
+        ) : null}
         {atrasado ? (
           <p className="mt-2 flex items-center gap-1 text-xs font-medium text-destructive">
             <AlertTriangle className="size-3" /> Atrasado
@@ -653,7 +750,12 @@ function Card({
           <MessageCircle className="size-3" /> WhatsApp
         </a>
         {proximo && statusAplicavel(proximo, pedido.tipo_servico) ? (
-          <Button size="sm" variant="outline" onClick={() => onAvancar(proximo)} className="h-7 text-xs">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onAvancar(proximo)}
+            className="h-7 text-xs"
+          >
             {STATUS_LABEL[proximo]} <ArrowRight className="size-3" />
           </Button>
         ) : null}
