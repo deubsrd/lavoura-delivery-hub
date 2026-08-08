@@ -100,10 +100,9 @@ export const DIA_SEMANA_LABEL: string[] = [
 /** Texto do horário de hoje, a partir do horário configurado para o dia da semana atual (ou "fechado"). */
 export function textoHorarioHoje(
   hoje: { ativo: boolean; hora_abertura: string; hora_fechamento: string } | null,
-  hora_limite_pedido: string,
 ): string {
   if (!hoje || !hoje.ativo) return "Hoje estamos fechados.";
-  return `Hoje atendemos das ${horaCurta(hoje.hora_abertura)} às ${horaCurta(hoje.hora_fechamento)}. Pedidos até às ${horaCurta(hora_limite_pedido)}.`;
+  return `Hoje atendemos das ${horaCurta(hoje.hora_abertura)} às ${horaCurta(hoje.hora_fechamento)}.`;
 }
 
 export function formatarMoeda(valor: number): string {

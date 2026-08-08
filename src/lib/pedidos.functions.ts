@@ -96,7 +96,7 @@ export const obterHorariosPublico = createServerFn({ method: "GET" })
     return {
       horarios: horarios ?? [],
       hora_limite_pedido: unidade.hora_limite_pedido,
-      textoHoje: textoHorarioHoje(hoje, unidade.hora_limite_pedido),
+      textoHoje: textoHorarioHoje(hoje),
     };
   });
 
