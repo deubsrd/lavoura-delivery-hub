@@ -96,6 +96,7 @@ export function montarMensagemDelivery(pedido: {
   tipo_servico: TipoServico;
   quantidade_cestos: number;
   horario_coleta: string | null;
+  data_prevista_retorno: string | null;
   rua: string;
   numero: string;
   bairro: string;
@@ -109,6 +110,16 @@ export function montarMensagemDelivery(pedido: {
   referencia_entrega: string | null;
   observacoes: string | null;
 }): string {
+  // Pedidos feitos antes deste recurso não têm horario_coleta preenchido
+  // (coluna nova) — nesses casos não dá pra afirmar "o quanto antes" (pode
+  // ter sido agendado), então cai pra previsão de retorno como referência,
+  // ou por último um aviso claro de que não há horário registrado.
+  const horarioColetaTexto = pedido.horario_coleta
+    ? formatarDataHora(pedido.horario_coleta)
+    : pedido.data_prevista_retorno
+      ? `não registrado — previsão de retorno em ${formatarDataHora(pedido.data_prevista_retorno)}`
+      : "não registrado, confira no painel";
+
   const linhas: string[] = [
     "*Delivery Lavoura*",
     "",
@@ -117,7 +128,7 @@ export function montarMensagemDelivery(pedido: {
     `Serviço: ${TIPO_SERVICO_LABEL[pedido.tipo_servico]}`,
     `Cestos: ${pedido.quantidade_cestos}`,
     "",
-    `Horário de coleta: ${pedido.horario_coleta ? formatarDataHora(pedido.horario_coleta) : "o quanto antes"}`,
+    `Horário de coleta: ${horarioColetaTexto}`,
     "",
     `${pedido.tipo_servico === "entrega" ? "Endereço de entrega" : "Endereço de coleta"}: ${enderecoCompleto(pedido)}`,
   ];
