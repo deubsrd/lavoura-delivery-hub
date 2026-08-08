@@ -538,6 +538,10 @@ function PedidoPage() {
                   <Plus className="size-4" />
                 </Button>
               </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                1 cesto ≈ 25 peças de roupa, ou 1 edredom grande, ou 2 cobertores leves, ou 4
+                lençóis e fronhas.
+              </p>
             </Campo>
 
             {estimativaCestos ? (
