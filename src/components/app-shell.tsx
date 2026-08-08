@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { KanbanSquare, LayoutDashboard, LogOut, Settings2 } from "lucide-react";
+import { KanbanSquare, LayoutDashboard, LogOut, Settings2, Users } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
@@ -76,6 +76,13 @@ export function AppShell() {
                   <SidebarMenuButton asChild isActive={pathname === "/dashboard"}>
                     <Link to="/dashboard">
                       <LayoutDashboard /> Dashboard
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/clientes"}>
+                    <Link to="/clientes">
+                      <Users /> Clientes
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

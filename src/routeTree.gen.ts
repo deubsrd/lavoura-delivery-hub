@@ -16,6 +16,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as SlugPedidoRouteImport } from './routes/$slug.pedido'
 import { Route as AuthenticatedAdminPrecosRouteImport } from './routes/_authenticated/admin-precos'
+import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
 import { Route as AuthenticatedConfiguracoesConvitesRouteImport } from './routes/_authenticated/configuracoes/convites'
@@ -57,6 +58,11 @@ const AuthenticatedAdminPrecosRoute =
     path: '/admin-precos',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedClientesRoute = AuthenticatedClientesRouteImport.update({
+  id: '/clientes',
+  path: '/clientes',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
+  '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByTo {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
+  '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
@@ -121,6 +129,7 @@ export interface FileRoutesById {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
   '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
+  '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
   '/_authenticated/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/$slug/pedido'
     | '/admin-precos'
+    | '/clientes'
     | '/dashboard'
     | '/painel'
     | '/configuracoes/convites'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/$slug/pedido'
     | '/admin-precos'
+    | '/clientes'
     | '/dashboard'
     | '/painel'
     | '/configuracoes/convites'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/$slug/pedido'
     | '/_authenticated/admin-precos'
+    | '/_authenticated/clientes'
     | '/_authenticated/dashboard'
     | '/_authenticated/painel'
     | '/_authenticated/configuracoes/convites'
@@ -230,6 +242,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminPrecosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/clientes': {
+      id: '/_authenticated/clientes'
+      path: '/clientes'
+      fullPath: '/clientes'
+      preLoaderRoute: typeof AuthenticatedClientesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -270,6 +289,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminPrecosRoute: typeof AuthenticatedAdminPrecosRoute
+  AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
   AuthenticatedConfiguracoesConvitesRoute: typeof AuthenticatedConfiguracoesConvitesRoute
@@ -279,6 +299,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminPrecosRoute: AuthenticatedAdminPrecosRoute,
+  AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
   AuthenticatedConfiguracoesConvitesRoute:
