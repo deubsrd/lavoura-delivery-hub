@@ -371,6 +371,7 @@ export type Database = {
           valor_lavagem: number | null
           valor_secagem: number | null
           valor_total: number | null
+          visualizado_em: string | null
         }
         Insert: {
           bairro: string
@@ -412,6 +413,7 @@ export type Database = {
           valor_lavagem?: number | null
           valor_secagem?: number | null
           valor_total?: number | null
+          visualizado_em?: string | null
         }
         Update: {
           bairro?: string
@@ -453,6 +455,7 @@ export type Database = {
           valor_lavagem?: number | null
           valor_secagem?: number | null
           valor_total?: number | null
+          visualizado_em?: string | null
         }
         Relationships: [
           {

@@ -48,7 +48,8 @@ export function maskTelefone(value: string): string {
   const digits = value.replace(/\D/g, "").slice(0, 11);
   if (digits.length <= 2) return digits.length ? `(${digits}` : "";
   if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  if (digits.length <= 10)
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
@@ -62,11 +63,7 @@ export function whatsappLink(telefone: string): string {
   return `https://wa.me/${comPais}`;
 }
 
-export function enderecoResumido(p: {
-  rua: string;
-  numero: string;
-  bairro: string;
-}): string {
+export function enderecoResumido(p: { rua: string; numero: string; bairro: string }): string {
   return `${p.rua}, ${p.numero} — ${p.bairro}`;
 }
 
@@ -221,4 +218,9 @@ export function estaAtrasado(p: {
   if (!p.data_prevista_retorno) return false;
   if (p.status === "entregue" || p.status === "cancelado") return false;
   return new Date(p.data_prevista_retorno).getTime() < Date.now();
+}
+
+/** "YYYY-MM-DD" do instante `iso`, no fuso da unidade (America/Boa_Vista) — pra comparar "é hoje?" sem depender do fuso de quem está olhando a tela. */
+export function chaveDiaBoaVista(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: FUSO_UNIDADE });
 }

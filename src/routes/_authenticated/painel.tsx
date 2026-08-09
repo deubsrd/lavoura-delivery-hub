@@ -9,6 +9,7 @@ import {
   BellRing,
   CalendarClock,
   Copy,
+  Eye,
   LogOut,
   MessageCircle,
   PackageCheck,
@@ -28,6 +29,7 @@ import {
   FLUXO_STATUS,
   STATUS_LABEL,
   TIPO_SERVICO_LABEL,
+  chaveDiaBoaVista,
   colunasParaTipo,
   enderecoResumido,
   estaAtrasado,
@@ -98,12 +100,16 @@ type Pedido = {
   data_prevista_retorno: string | null;
   horario_coleta: string | null;
   pedido_fora_do_horario: boolean;
+  visualizado_em: string | null;
   distancia_km: number | null;
   desconto_descricao: string | null;
   valor_total: number | null;
 };
 
-const COLUNAS: PedidoStatus[] = [...FLUXO_STATUS, "cancelado"];
+// "Cancelado" não é mais uma coluna do Kanban — pedidos cancelados ficam
+// visíveis em Clientes > Cancelamentos (nome, telefone, motivo, quando).
+// O board só mostra o fluxo ativo.
+const COLUNAS: PedidoStatus[] = FLUXO_STATUS;
 
 type MotivoCategoria = "teste" | "desistencia" | "erro";
 const MOTIVO_CATEGORIA_LABEL: Record<MotivoCategoria, string> = {
@@ -188,8 +194,14 @@ function PainelPage() {
   // próximo horário livre e não exigem aceite manual nem tocam o alerta
   // sonoro — a atendente ainda pode encontrá-los e avançá-los normalmente
   // pela coluna "Pedido recebido", só não é cobrada a agir imediatamente.
+  // "Marcar como visualizado" (visualizado_em) também tira o pedido dessa
+  // fila/alarme sem precisar avançar o status — só reconhece que alguém já
+  // viu.
   const pedidosRecebidos = useMemo(
-    () => (pedidos.data ?? []).filter((p) => p.status === "recebido" && !p.pedido_fora_do_horario),
+    () =>
+      (pedidos.data ?? []).filter(
+        (p) => p.status === "recebido" && !p.pedido_fora_do_horario && !p.visualizado_em,
+      ),
     [pedidos.data],
   );
   const idsRecebidos = useMemo(() => pedidosRecebidos.map((p) => p.id), [pedidosRecebidos]);
@@ -305,6 +317,15 @@ function PainelPage() {
     }
     toast.success("Motoboy atualizado.");
     queryClient.invalidateQueries({ queryKey: ["pedidos"] });
+  }
+
+  /** Para o alarme sonoro desse pedido pra todo mundo (sincroniza via Realtime) sem mudar o status. */
+  async function marcarVisualizado(pedido: Pedido) {
+    const { error } = await supabase
+      .from("pedidos_delivery")
+      .update({ visualizado_em: new Date().toISOString() } as never)
+      .eq("id", pedido.id);
+    if (error) toast.error("Não foi possível marcar como visualizado.");
   }
 
   async function sair() {
@@ -456,9 +477,28 @@ function PainelPage() {
         </div>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto p-4">
+      <div className="flex items-start gap-4 overflow-x-auto p-4">
         {COLUNAS.map((coluna) => {
           const cards = lista.filter((p) => p.status === coluna);
+
+          // Coluna vazia fica minimizada (só um carimbo vertical) pra
+          // caber mais fluxo na tela — expande sozinha assim que algum
+          // pedido cair nela (é só cards.length virar > 0).
+          if (cards.length === 0) {
+            return (
+              <section
+                key={coluna}
+                title={STATUS_LABEL[coluna]}
+                className="flex w-11 shrink-0 flex-col items-center gap-2 rounded-lg border border-dashed py-3 text-muted-foreground"
+              >
+                <Badge variant="secondary">0</Badge>
+                <span className="[writing-mode:vertical-rl] rotate-180 text-xs whitespace-nowrap">
+                  {STATUS_LABEL[coluna]}
+                </span>
+              </section>
+            );
+          }
+
           return (
             <section key={coluna} className="w-[280px] shrink-0">
               <div className="mb-3 flex items-center justify-between">
@@ -472,6 +512,7 @@ function PainelPage() {
                     pedido={p}
                     onAbrir={() => setDetalheId(p.id)}
                     onAvancar={(novo) => mudarStatus(p, novo)}
+                    onVisualizar={() => marcarVisualizado(p)}
                     onCancelar={() => {
                       setCancelando(p);
                       setMotivoCategoria(null);
@@ -479,11 +520,6 @@ function PainelPage() {
                     }}
                   />
                 ))}
-                {cards.length === 0 ? (
-                  <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-                    Nenhum pedido
-                  </p>
-                ) : null}
               </div>
             </section>
           );
@@ -742,11 +778,13 @@ function Card({
   pedido,
   onAbrir,
   onAvancar,
+  onVisualizar,
   onCancelar,
 }: {
   pedido: Pedido;
   onAbrir: () => void;
   onAvancar: (novo: PedidoStatus) => void;
+  onVisualizar: () => void;
   onCancelar: () => void;
 }) {
   const atrasado = estaAtrasado(pedido);
@@ -755,10 +793,24 @@ function Card({
   const anterior = indice > 0 ? fluxo[indice - 1] : undefined;
   const proximo = indice >= 0 ? fluxo[indice + 1] : undefined;
 
+  // Pendente de aceite: continua vermelho mesmo depois de "visualizado" —
+  // visualizar só para o som, não conta como ter aceitado o pedido.
+  const naoAceito = pedido.status === "recebido" && !pedido.pedido_fora_do_horario;
+  const precisaAlarme = naoAceito && !pedido.visualizado_em;
+  const destaqueVermelho = atrasado || naoAceito;
+  const ehHoje =
+    chaveDiaBoaVista(pedido.horario_coleta ?? pedido.data_pedido) ===
+    chaveDiaBoaVista(new Date().toISOString());
+  const destaqueVerde = !destaqueVermelho && ehHoje;
+
   return (
     <article
       className={`rounded-xl border bg-card p-3 shadow-card transition ${
-        atrasado ? "border-2 border-destructive" : ""
+        destaqueVermelho
+          ? "shadow-[0_0_18px_3px_rgba(239,68,68,0.45)]"
+          : destaqueVerde
+            ? "shadow-[0_0_18px_3px_rgba(34,197,94,0.35)]"
+            : ""
       }`}
     >
       <button onClick={onAbrir} className="w-full text-left">
@@ -812,6 +864,15 @@ function Card({
         >
           <Copy className="size-3" /> Copiar mensagem de delivery
         </button>
+        {precisaAlarme ? (
+          <button
+            type="button"
+            onClick={onVisualizar}
+            className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium"
+          >
+            <Eye className="size-3" /> Marcar como visualizado
+          </button>
+        ) : null}
         {anterior ? (
           <Button
             size="sm"

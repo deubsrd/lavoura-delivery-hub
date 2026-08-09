@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Download, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 
+import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
 import { PaginaHeader } from "@/components/pagina-header";
@@ -13,6 +14,7 @@ import { maskCpf } from "@/lib/cpf";
 import { maskTelefone } from "@/lib/lavoura";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
   head: () => ({
@@ -21,8 +23,11 @@ export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
 });
 
+type Aba = "clientes" | "cancelamentos";
+
 function ClientesPage() {
   const atendente = useAtendenteAdmin();
+  const [aba, setAba] = useState<Aba>("clientes");
 
   if (atendente.isLoading) {
     return <main className="p-8 text-center text-sm text-muted-foreground">Carregando…</main>;
@@ -32,8 +37,90 @@ function ClientesPage() {
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-5 py-8">
       <PaginaHeader titulo="Clientes" />
-      <SecaoClientes />
+      <div className="flex overflow-hidden rounded-md border text-sm w-fit">
+        <button
+          onClick={() => setAba("clientes")}
+          className={`px-3 py-1.5 font-medium transition ${
+            aba === "clientes" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"
+          }`}
+        >
+          Clientes
+        </button>
+        <button
+          onClick={() => setAba("cancelamentos")}
+          className={`px-3 py-1.5 font-medium transition ${
+            aba === "cancelamentos" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"
+          }`}
+        >
+          Cancelamentos
+        </button>
+      </div>
+      {aba === "clientes" ? <SecaoClientes /> : <SecaoCancelamentos />}
     </main>
+  );
+}
+
+type PedidoCancelado = {
+  id: string;
+  nome_completo: string;
+  telefone: string;
+  motivo_cancelamento: string | null;
+  cancelamento_teste: boolean;
+  updated_at: string;
+};
+
+function SecaoCancelamentos() {
+  const cancelamentos = useQuery({
+    queryKey: ["clientes-cancelamentos"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pedidos_delivery")
+        .select("id, nome_completo, telefone, motivo_cancelamento, cancelamento_teste, updated_at")
+        .eq("status", "cancelado")
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return (data ?? []) as PedidoCancelado[];
+    },
+  });
+
+  if (cancelamentos.isLoading) {
+    return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  }
+  if (!cancelamentos.data || cancelamentos.data.length === 0) {
+    return <p className="text-sm text-muted-foreground">Nenhum pedido cancelado.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border bg-card">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-left text-xs text-muted-foreground">
+            <th className="px-3 py-2 font-medium">Cliente</th>
+            <th className="px-3 py-2 font-medium">Telefone</th>
+            <th className="px-3 py-2 font-medium">Motivo</th>
+            <th className="px-3 py-2 font-medium">Cancelado em</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cancelamentos.data.map((p) => (
+            <tr key={p.id} className="border-b last:border-0">
+              <td className="px-3 py-2 font-medium">{p.nome_completo}</td>
+              <td className="px-3 py-2 text-muted-foreground">{maskTelefone(p.telefone)}</td>
+              <td className="px-3 py-2 text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  {p.motivo_cancelamento ?? "—"}
+                  {p.cancelamento_teste ? <Badge variant="secondary">Teste</Badge> : null}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-muted-foreground">
+                {new Date(p.updated_at).toLocaleString("pt-BR", { timeZone: "America/Boa_Vista" })}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
