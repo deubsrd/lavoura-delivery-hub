@@ -334,7 +334,6 @@ export type Database = {
         Row: {
           bairro: string
           bairro_entrega: string | null
-          cancelamento_teste: boolean
           cliente_id: string | null
           complemento: string | null
           complemento_entrega: string | null
@@ -375,7 +374,6 @@ export type Database = {
         Insert: {
           bairro: string
           bairro_entrega?: string | null
-          cancelamento_teste?: boolean
           cliente_id?: string | null
           complemento?: string | null
           complemento_entrega?: string | null
@@ -416,7 +414,6 @@ export type Database = {
         Update: {
           bairro?: string
           bairro_entrega?: string | null
-          cancelamento_teste?: boolean
           cliente_id?: string | null
           complemento?: string | null
           complemento_entrega?: string | null
