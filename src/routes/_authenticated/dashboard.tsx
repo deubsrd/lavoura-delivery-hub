@@ -72,6 +72,7 @@ type PedidoDashboard = {
   valor_total: number | null;
   distancia_km: number | null;
   cliente_id: string | null;
+  cancelamento_teste: boolean;
 };
 
 type ClienteDashboard = { id: string; created_at: string };
@@ -115,7 +116,9 @@ function SecaoDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pedidos_delivery")
-        .select("data_pedido, status, tipo_servico, valor_total, distancia_km, cliente_id")
+        .select(
+          "data_pedido, status, tipo_servico, valor_total, distancia_km, cliente_id, cancelamento_teste",
+        )
         .gte("data_pedido", inicioJanelaStats.toISOString())
         .order("data_pedido", { ascending: true });
       if (error) throw error;
@@ -136,7 +139,11 @@ function SecaoDashboard() {
   });
 
   const metricas = useMemo(() => {
-    const pedidos = pedidosStats.data ?? [];
+    // Pedidos de teste (cancelamento_teste, ver painel.tsx) não representam
+    // negócio real — ficam de fora de toda métrica, não só da taxa de
+    // cancelamento, senão inflariam "pedidos este mês"/"todos este mês" à
+    // toa.
+    const pedidos = (pedidosStats.data ?? []).filter((p) => !p.cancelamento_teste);
     const clientes = clientesStats.data ?? [];
     const naoCancelados = pedidos.filter((p) => p.status !== "cancelado");
 
