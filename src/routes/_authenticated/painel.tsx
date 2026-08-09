@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   BellRing,
   CalendarClock,
@@ -91,6 +92,7 @@ type Pedido = {
   observacoes: string | null;
   status: PedidoStatus;
   motivo_cancelamento: string | null;
+  cancelamento_teste: boolean;
   motoboy_nome: string | null;
   data_pedido: string;
   data_prevista_retorno: string | null;
@@ -103,6 +105,13 @@ type Pedido = {
 
 const COLUNAS: PedidoStatus[] = [...FLUXO_STATUS, "cancelado"];
 
+type MotivoCategoria = "teste" | "desistencia" | "erro";
+const MOTIVO_CATEGORIA_LABEL: Record<MotivoCategoria, string> = {
+  teste: "Teste",
+  desistencia: "Desistência",
+  erro: "Erro",
+};
+
 function PainelPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -114,7 +123,8 @@ function PainelPage() {
   const [filtroData, setFiltroData] = useState("");
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState<Pedido | null>(null);
-  const [motivo, setMotivo] = useState("");
+  const [motivoCategoria, setMotivoCategoria] = useState<MotivoCategoria | null>(null);
+  const [motivoDetalhe, setMotivoDetalhe] = useState("");
 
   const [periodo, setPeriodo] = useState<"30" | "90" | "all">("30");
 
@@ -252,9 +262,17 @@ function PainelPage() {
     },
   });
 
-  async function mudarStatus(pedido: Pedido, novo: PedidoStatus, motivoCancelamento?: string) {
+  async function mudarStatus(
+    pedido: Pedido,
+    novo: PedidoStatus,
+    motivoCancelamento?: string,
+    cancelamentoTeste?: boolean,
+  ) {
     const patch: Record<string, unknown> = { status: novo };
-    if (novo === "cancelado") patch["motivo_cancelamento"] = motivoCancelamento ?? null;
+    if (novo === "cancelado") {
+      patch["motivo_cancelamento"] = motivoCancelamento ?? null;
+      patch["cancelamento_teste"] = cancelamentoTeste ?? false;
+    }
     if (novo === "entregue") patch["data_entrega_efetiva"] = new Date().toISOString();
     const { error } = await supabase
       .from("pedidos_delivery")
@@ -456,7 +474,8 @@ function PainelPage() {
                     onAvancar={(novo) => mudarStatus(p, novo)}
                     onCancelar={() => {
                       setCancelando(p);
-                      setMotivo("");
+                      setMotivoCategoria(null);
+                      setMotivoDetalhe("");
                     }}
                   />
                 ))}
@@ -601,20 +620,44 @@ function PainelPage() {
           <DialogHeader>
             <DialogTitle className="text-2xl">Cancelar pedido</DialogTitle>
             <DialogDescription>
-              Informe o motivo do cancelamento. Ele fica registrado no histórico.
+              Escolha o motivo. Fica registrado no histórico do pedido.
             </DialogDescription>
           </DialogHeader>
+          <div className="grid grid-cols-3 gap-2">
+            {(["teste", "desistencia", "erro"] as MotivoCategoria[]).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setMotivoCategoria(cat)}
+                className={`rounded-lg border p-2 text-sm font-medium transition ${
+                  motivoCategoria === cat
+                    ? "border-destructive bg-destructive/10 text-destructive"
+                    : "bg-card hover:bg-secondary"
+                }`}
+              >
+                {MOTIVO_CATEGORIA_LABEL[cat]}
+              </button>
+            ))}
+          </div>
+          {motivoCategoria === "teste" ? (
+            <p className="text-xs text-muted-foreground">
+              Pedidos de teste não entram na taxa de desistência do Dashboard.
+            </p>
+          ) : null}
           <Textarea
-            value={motivo}
-            onChange={(e) => setMotivo(e.target.value)}
-            rows={3}
-            placeholder="Ex.: cliente desistiu, endereço fora da área de atendimento…"
+            value={motivoDetalhe}
+            onChange={(e) => setMotivoDetalhe(e.target.value)}
+            rows={2}
+            placeholder="Detalhe opcional…"
           />
           <Button
-            disabled={motivo.trim().length < 3}
+            disabled={!motivoCategoria}
             onClick={async () => {
-              if (!cancelando) return;
-              await mudarStatus(cancelando, "cancelado", motivo.trim());
+              if (!cancelando || !motivoCategoria) return;
+              const motivoFinal = motivoDetalhe.trim()
+                ? `${MOTIVO_CATEGORIA_LABEL[motivoCategoria]}: ${motivoDetalhe.trim()}`
+                : MOTIVO_CATEGORIA_LABEL[motivoCategoria];
+              await mudarStatus(cancelando, "cancelado", motivoFinal, motivoCategoria === "teste");
               setCancelando(null);
             }}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -709,6 +752,7 @@ function Card({
   const atrasado = estaAtrasado(pedido);
   const fluxo = colunasParaTipo(pedido.tipo_servico);
   const indice = fluxo.indexOf(pedido.status);
+  const anterior = indice > 0 ? fluxo[indice - 1] : undefined;
   const proximo = indice >= 0 ? fluxo[indice + 1] : undefined;
 
   return (
@@ -768,6 +812,16 @@ function Card({
         >
           <Copy className="size-3" /> Copiar mensagem de delivery
         </button>
+        {anterior ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onAvancar(anterior)}
+            className="h-7 text-xs"
+          >
+            <ArrowLeft className="size-3" /> {STATUS_LABEL[anterior]}
+          </Button>
+        ) : null}
         {proximo && statusAplicavel(proximo, pedido.tipo_servico) ? (
           <Button
             size="sm"
