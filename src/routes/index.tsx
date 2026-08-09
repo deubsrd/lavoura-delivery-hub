@@ -21,10 +21,14 @@ function PalavraRotativa() {
 
   return (
     <span className="flex flex-col items-center">
-      <span className="relative block h-[1.3em] overflow-hidden">
+      {/* Altura fixa (não em `em`) — como o tamanho da fonte muda por
+          breakpoint mas está no elemento FILHO, um `h-[Xem]` aqui em cima
+          resolveria contra o font-size herdado (bem menor), cortando a
+          palavra pela metade. */}
+      <span className="relative block h-20 overflow-hidden sm:h-28">
         <span
           key={PALAVRAS_ROTATIVAS[indice]}
-          className="block animate-in fade-in slide-in-from-bottom-3 font-display text-5xl text-accent duration-500 sm:text-7xl"
+          className="block animate-in fade-in slide-in-from-bottom-3 font-serif-display text-5xl leading-tight text-accent italic duration-500 sm:text-7xl"
         >
           {PALAVRAS_ROTATIVAS[indice]}
         </span>
