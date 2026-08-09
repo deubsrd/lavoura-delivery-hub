@@ -421,11 +421,17 @@ export type PromocaoDiaSemana = {
 };
 
 /**
- * Preço customizado do cesto (lavagem + secagem combinadas) pra uma janela
- * de dia da semana + horário — substitui a soma de valor_lavagem_por_cesto
- * + valor_secagem_por_cesto quando o horário de coleta do pedido cai
- * dentro dela. `hora_fim <= hora_inicio` é uma janela que atravessa a
- * meia-noite (ex.: 23:00–00:59).
+ * Preço customizado POR SERVIÇO (lavagem OU secagem — a mesma taxa vale
+ * pras duas) pra uma janela de dia da semana + horário — substitui
+ * valor_lavagem_por_cesto e valor_secagem_por_cesto (cada um individualmente)
+ * quando o horário de coleta do pedido cai dentro dela. Mesmo modelo dos
+ * preços base: um cesto completo = 2× essa taxa (lavagem + secagem).
+ * `hora_fim <= hora_inicio` é uma janela que atravessa a meia-noite (ex.:
+ * 23:00–00:59).
+ *
+ * Nome da coluna (`valor_cesto`) é histórico — foi corrigido aqui o bug de
+ * tratar esse valor como já sendo o preço do cesto inteiro, o que cobrava só
+ * metade do correto (ver PR de correção de preço de horário especial).
  */
 export type PrecoPorHorario = {
   dia_semana: number;
@@ -499,18 +505,20 @@ export function calcularPreco(
   const detalhamento: ItemDetalhamento[] = [];
 
   if (regraHorario) {
-    // Preço especial: um único valor pro cesto (lavagem + secagem juntas)
-    // nessa janela — dividido proporcionalmente entre lavagem/secagem só
-    // pra manter as colunas valor_lavagem/valor_secagem preenchidas de
-    // forma coerente; a mensagem pro cliente mostra o valor combinado.
-    const valorCestoEspecial = quantidadeCestos * regraHorario.valor_cesto;
-    const totalBase = precos.valor_lavagem_por_cesto + precos.valor_secagem_por_cesto;
-    const proporcaoLavagem = totalBase > 0 ? precos.valor_lavagem_por_cesto / totalBase : 0.5;
-    valorLavagem = valorCestoEspecial * proporcaoLavagem;
-    valorSecagem = valorCestoEspecial - valorLavagem;
+    // Preço especial: `regraHorario.valor_cesto` é a taxa POR SERVIÇO nessa
+    // janela (mesma taxa pra lavagem e secagem) — igual ao modelo dos
+    // preços base, só que os dois usam essa taxa diferenciada em vez de
+    // valor_lavagem_por_cesto / valor_secagem_por_cesto. Um cesto completo
+    // sai a 2× essa taxa. (Bug corrigido: a versão anterior tratava
+    // valor_cesto como já sendo o preço do cesto inteiro e cobrava só
+    // metade do correto — ex.: 3 cestos a R$16,90 mostravam R$50,70 em vez
+    // de R$101,40.)
+    valorLavagem = quantidadeCestos * regraHorario.valor_cesto;
+    valorSecagem = quantidadeCestos * regraHorario.valor_cesto;
+    const valorCestoCompleto = regraHorario.valor_cesto * 2;
     detalhamento.push({
-      rotulo: `Lavagem + secagem — preço de horário especial (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(regraHorario.valor_cesto)})`,
-      valor: valorCestoEspecial,
+      rotulo: `Lavagem + secagem — preço de horário especial (${quantidadeCestos} ${quantidadeCestos === 1 ? "cesto" : "cestos"} × ${formatarMoeda(valorCestoCompleto)})`,
+      valor: valorLavagem + valorSecagem,
     });
   } else {
     valorLavagem = quantidadeCestos * precos.valor_lavagem_por_cesto;
