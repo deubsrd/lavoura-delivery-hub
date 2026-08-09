@@ -274,14 +274,14 @@ function SecaoDashboard() {
   const carregandoStats = pedidosStats.isLoading || clientesStats.isLoading;
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 px-5 py-8">
+    <main className="mx-auto w-full max-w-[1800px] space-y-6 px-5 py-8 xl:px-10">
       <PaginaHeader titulo="Dashboard" />
 
       {carregandoStats ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             <StatTile
               rotulo="Hoje"
               valor={formatarMoeda(metricas.hoje.valor)}
@@ -316,7 +316,7 @@ function SecaoDashboard() {
 
           <SecaoGrafico />
 
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
             <StatTileSimples
               rotulo="Km percorridos (mês)"
               valor={`${metricas.kmEsteMes.toFixed(1)} km`}
@@ -537,7 +537,7 @@ function SecaoGrafico() {
       {pedidos.isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
-        <ChartContainer config={CHART_CONFIG} className="aspect-auto h-72 w-full">
+        <ChartContainer config={CHART_CONFIG} className="aspect-auto h-72 w-full xl:h-96">
           <AreaChart data={pontos}>
             <defs>
               <linearGradient id="gradienteVendas" x1="0" y1="0" x2="0" y2="1">
