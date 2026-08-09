@@ -184,7 +184,10 @@ export const DIA_SEMANA_LABEL: string[] = [
 export function textoHorarioHoje(
   hoje: { ativo: boolean; hora_abertura: string; hora_fechamento: string } | null,
 ): string {
-  if (!hoje || !hoje.ativo) return "Hoje estamos fechados.";
+  // Em vez de só avisar "estamos fechados" (que afasta o cliente), convida
+  // a agendar já — o pedido é aceito normalmente e entra pro próximo
+  // horário disponível (ver EtapaResumo em $slug.pedido.tsx).
+  if (!hoje || !hoje.ativo) return "Agende seu pedido agora para o próximo horário disponível.";
   return `Hoje atendemos das ${horaCurta(hoje.hora_abertura)} às ${horaCurta(hoje.hora_fechamento)}.`;
 }
 
