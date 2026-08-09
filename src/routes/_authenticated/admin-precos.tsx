@@ -315,9 +315,10 @@ function SecaoPrecosPorHorario({
       <div>
         <h2 className="text-2xl">Preços por dia e horário</h2>
         <p className="text-sm text-muted-foreground">
-          Defina um preço diferente para o cesto (lavagem + secagem) numa janela de dias e
-          horários — por exemplo, terça-feira das 07h às 12h por R$ 13,90. Fora dessas janelas
-          valem os preços base acima.
+          Defina uma taxa diferente para lavagem e para secagem (o mesmo valor vale para as duas)
+          numa janela de dias e horários — por exemplo, terça-feira das 07h às 12h por R$ 13,90
+          (cesto completo sai por R$ 27,80: R$ 13,90 de lavagem + R$ 13,90 de secagem). Fora dessas
+          janelas valem os preços base acima.
         </p>
       </div>
 
@@ -361,7 +362,7 @@ function SecaoPrecosPorHorario({
           />
         </div>
         <div className="space-y-1.5">
-          <Label>Preço do cesto (R$)</Label>
+          <Label>Preço por serviço (R$)</Label>
           <Input
             type="number"
             step="0.01"
@@ -370,6 +371,10 @@ function SecaoPrecosPorHorario({
             value={valorCesto}
             onChange={(e) => setValorCesto(e.target.value)}
           />
+          <p className="text-xs text-muted-foreground">
+            Cesto completo (lavagem + secagem):{" "}
+            {valorCesto ? formatarMoeda(Number(valorCesto) * 2) : "—"}
+          </p>
         </div>
         <Button
           onClick={() => adicionar.mutate()}
@@ -395,8 +400,9 @@ function SecaoPrecosPorHorario({
                     {regras.map((r) => (
                       <div key={r.id} className="flex items-center justify-between gap-1 text-xs">
                         <span>
-                          {horaCurta(r.hora_inicio)}–{horaCurta(r.hora_fim)} ·{" "}
-                          {formatarMoeda(r.valor_cesto)}
+                          {horaCurta(r.hora_inicio)}–{horaCurta(r.hora_fim)} · cesto{" "}
+                          {formatarMoeda(r.valor_cesto * 2)} ({formatarMoeda(r.valor_cesto)}
+                          /serviço)
                         </span>
                         <button
                           onClick={() => remover.mutate(r.id)}
