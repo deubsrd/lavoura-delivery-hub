@@ -103,6 +103,11 @@ type Pedido = {
   visualizado_em: string | null;
   distancia_km: number | null;
   desconto_descricao: string | null;
+  valor_lavagem: number | null;
+  valor_secagem: number | null;
+  valor_atendente: number | null;
+  valor_delivery: number | null;
+  valor_desconto: number | null;
   valor_total: number | null;
 };
 
@@ -587,18 +592,53 @@ function PainelPage() {
                 ) : null}
 
                 {detalhe.valor_total !== null ? (
-                  <div className="rounded-lg border p-3 text-xs">
-                    <p className="mb-1 font-medium text-sm">
-                      Total estimado: {formatarMoeda(detalhe.valor_total)}
-                    </p>
-                    {detalhe.distancia_km !== null ? (
-                      <p className="text-muted-foreground">
-                        Distância de delivery: {detalhe.distancia_km.toFixed(1)} km
-                      </p>
+                  <div className="space-y-1 rounded-lg border p-3 text-xs">
+                    <p className="mb-1.5 font-medium text-sm">Como o valor foi calculado</p>
+                    {detalhe.valor_lavagem !== null ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Lavagem ({detalhe.quantidade_cestos}{" "}
+                          {detalhe.quantidade_cestos === 1 ? "cesto" : "cestos"})
+                        </span>
+                        <span>{formatarMoeda(detalhe.valor_lavagem)}</span>
+                      </div>
                     ) : null}
-                    {detalhe.desconto_descricao ? (
-                      <p className="text-muted-foreground">{detalhe.desconto_descricao}</p>
+                    {detalhe.valor_secagem !== null ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Secagem ({detalhe.quantidade_cestos}{" "}
+                          {detalhe.quantidade_cestos === 1 ? "cesto" : "cestos"})
+                        </span>
+                        <span>{formatarMoeda(detalhe.valor_secagem)}</span>
+                      </div>
                     ) : null}
+                    {detalhe.valor_atendente !== null ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Serviço da atendente</span>
+                        <span>{formatarMoeda(detalhe.valor_atendente)}</span>
+                      </div>
+                    ) : null}
+                    {detalhe.valor_delivery !== null ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Delivery
+                          {detalhe.distancia_km !== null
+                            ? ` (${detalhe.distancia_km.toFixed(1)} km)`
+                            : ""}
+                        </span>
+                        <span>{formatarMoeda(detalhe.valor_delivery)}</span>
+                      </div>
+                    ) : null}
+                    {detalhe.valor_desconto ? (
+                      <div className="flex justify-between text-accent">
+                        <span>{detalhe.desconto_descricao ?? "Desconto"}</span>
+                        <span>-{formatarMoeda(detalhe.valor_desconto)}</span>
+                      </div>
+                    ) : null}
+                    <div className="mt-1 flex justify-between border-t pt-1 font-medium text-sm">
+                      <span>Total</span>
+                      <span>{formatarMoeda(detalhe.valor_total)}</span>
+                    </div>
                   </div>
                 ) : null}
 
