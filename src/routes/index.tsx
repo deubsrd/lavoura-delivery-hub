@@ -140,7 +140,7 @@ function Index() {
           </div>
 
           {temMidia ? (
-            <div className="h-64 md:h-full md:min-h-[28rem]">
+            <div className="relative h-64 md:h-full md:min-h-[28rem]">
               {midiaTipo === "video" ? (
                 <video
                   src={midiaUrl}
@@ -155,6 +155,13 @@ function Index() {
                   className="h-full w-full object-cover"
                 />
               )}
+              {/* Degradê pra não cortar bruscamente entre o fundo verde e a
+                  mídia — em pé (empilhado) a costura é em cima, lado a lado
+                  (md+) a costura é à esquerda. */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,var(--primary)_0%,transparent_18%)] md:bg-[linear-gradient(to_right,var(--primary)_0%,transparent_18%)]"
+              />
             </div>
           ) : null}
         </div>
