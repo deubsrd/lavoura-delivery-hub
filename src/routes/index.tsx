@@ -2,6 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Truck, Sparkles, ShieldCheck } from "lucide-react";
 
+import { getUnidadeBySlug } from "@/lib/pedidos.functions";
+
+// A home pública ainda não é multi-unidade de verdade (link fixo abaixo já
+// aponta pra essa mesma unidade) — a mídia de propaganda exibida aqui é a
+// configurada pra ela em Configurações > Identificação.
+const SLUG_UNIDADE_HOME = "boa-vista";
+
 const PALAVRAS_ROTATIVAS = ["lavada", "seca", "dobrada", "cheirosa", "em casa"];
 
 /**
@@ -11,7 +18,7 @@ const PALAVRAS_ROTATIVAS = ["lavada", "seca", "dobrada", "cheirosa", "em casa"];
  * Mesma dinâmica do hero do suportelavoura ("Aqui tem [palavra]"), adaptada
  * pro vocabulário/paleta daqui.
  */
-function PalavraRotativa() {
+function PalavraRotativa({ alinhamento = "" }: { alinhamento?: string }) {
   const [indice, setIndice] = useState(0);
 
   useEffect(() => {
@@ -20,7 +27,7 @@ function PalavraRotativa() {
   }, [indice]);
 
   return (
-    <span className="flex flex-col items-center">
+    <span className={`flex flex-col items-center ${alinhamento}`}>
       {/* Altura fixa (não em `em`) — como o tamanho da fonte muda por
           breakpoint mas está no elemento FILHO, um `h-[Xem]` aqui em cima
           resolveria contra o font-size herdado (bem menor), cortando a
@@ -48,6 +55,20 @@ function PalavraRotativa() {
 }
 
 export const Route = createFileRoute("/")({
+  loader: async () => {
+    // A home é a porta de entrada pública do site inteiro — nunca pode
+    // quebrar por causa de um dado opcional (a mídia de propaganda). Se a
+    // busca falhar por qualquer motivo (rede, coluna nova ainda não
+    // migrada no banco, etc.), cai pro layout sem mídia em vez de derrubar
+    // a página inteira.
+    try {
+      const unidade = await getUnidadeBySlug({ data: { slug: SLUG_UNIDADE_HOME } });
+      return { unidade };
+    } catch (err) {
+      console.error("[home] falha ao buscar dados da unidade", err);
+      return { unidade: null };
+    }
+  },
   head: () => ({
     meta: [
       { title: "Lavoura — Lavanderia autosserviço com busca e entrega" },
@@ -71,29 +92,71 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const { unidade } = Route.useLoaderData();
+  const midiaUrl = unidade?.midia_propaganda_url ?? null;
+  const midiaTipo = unidade?.midia_propaganda_tipo ?? null;
+  const temMidia = midiaUrl !== null && midiaTipo !== null;
+
   return (
     <main className="min-h-screen bg-background">
-      <section className="bg-primary px-5 pt-12 pb-16 text-primary-foreground sm:pt-16 sm:pb-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <img
-            src="/lavoura-logo-branco.svg"
-            alt="Lavoura Lavanderia Self Service"
-            className="mx-auto h-12 w-auto sm:h-14"
-          />
-          <div className="mt-8">
-            <p className="text-lg text-primary-foreground/70 sm:text-xl">Sua roupa</p>
-            <PalavraRotativa />
-          </div>
-          <p className="mt-5 text-base/relaxed opacity-90">
-            Faça seu pedido em menos de um minuto pelo celular.
-          </p>
-          <Link
-            to="/$slug/pedido"
-            params={{ slug: "boa-vista" }}
-            className="mt-8 inline-flex items-center gap-2 rounded-full bg-accent px-6 py-3 font-medium text-accent-foreground transition hover:opacity-90"
+      <section className="bg-primary text-primary-foreground">
+        <div
+          className={
+            temMidia
+              ? "mx-auto grid max-w-6xl items-center md:grid-cols-2 md:gap-10"
+              : "mx-auto max-w-2xl px-5 pt-12 pb-16 sm:pt-16 sm:pb-20"
+          }
+        >
+          <div
+            className={
+              temMidia
+                ? "px-5 py-12 text-center sm:py-16 md:py-24 md:text-left"
+                : "text-center"
+            }
           >
-            <Truck className="size-5" /> Pedir Delivery
-          </Link>
+            <img
+              src="/lavoura-logo-branco.svg"
+              alt="Lavoura Lavanderia Self Service"
+              className={`h-12 w-auto sm:h-14 ${temMidia ? "mx-auto md:mx-0" : "mx-auto"}`}
+            />
+            <div className="mt-8">
+              <p
+                className={`text-lg text-primary-foreground/70 sm:text-xl ${temMidia ? "md:text-left" : ""}`}
+              >
+                Sua roupa
+              </p>
+              <PalavraRotativa alinhamento={temMidia ? "md:items-start" : ""} />
+            </div>
+            <p className="mt-5 text-base/relaxed opacity-90">
+              Faça seu pedido em menos de um minuto pelo celular.
+            </p>
+            <Link
+              to="/$slug/pedido"
+              params={{ slug: "boa-vista" }}
+              className="mt-8 inline-flex items-center gap-2 rounded-full bg-accent px-6 py-3 font-medium text-accent-foreground transition hover:opacity-90"
+            >
+              <Truck className="size-5" /> Pedir Delivery
+            </Link>
+          </div>
+
+          {temMidia ? (
+            <div className="h-64 md:h-full md:min-h-[28rem]">
+              {midiaTipo === "video" ? (
+                <video
+                  src={midiaUrl}
+                  controls
+                  playsInline
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <img
+                  src={midiaUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              )}
+            </div>
+          ) : null}
         </div>
       </section>
 

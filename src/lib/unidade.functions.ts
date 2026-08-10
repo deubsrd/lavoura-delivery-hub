@@ -112,6 +112,71 @@ export const salvarIdentificacaoUnidade = createServerFn({ method: "POST" })
     return { nome: data.nome, cidade: data.cidade };
   });
 
+export type MidiaPropaganda = {
+  midia_propaganda_url: string | null;
+  midia_propaganda_tipo: "imagem" | "video" | null;
+};
+
+/** Mídia de propaganda (imagem/vídeo) configurada da própria unidade (só admin). */
+export const obterMidiaPropaganda = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<MidiaPropaganda> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("unidades")
+      .select("midia_propaganda_url, midia_propaganda_tipo")
+      .eq("id", unidadeId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return (
+      (data as MidiaPropaganda | null) ?? { midia_propaganda_url: null, midia_propaganda_tipo: null }
+    );
+  });
+
+/**
+ * Salva a URL da mídia depois que o admin já fez o upload direto pro
+ * Storage (bucket `midia-propaganda`, público) usando o client autenticado
+ * do navegador — não passa o arquivo em si por aqui, só a referência.
+ * Upload de vídeo pelo servidor (via createServerFn) não é viável no
+ * Cloudflare Worker do app; o arquivo vai direto do navegador pro Supabase.
+ */
+export const salvarMidiaPropaganda = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z
+      .object({ url: z.string().trim().url(), tipo: z.enum(["imagem", "video"]) })
+      .parse(data),
+  )
+  .handler(async ({ data, context }): Promise<MidiaPropaganda> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("unidades")
+      .update({ midia_propaganda_url: data.url, midia_propaganda_tipo: data.tipo })
+      .eq("id", unidadeId);
+    if (error) throw new Error(error.message);
+    return { midia_propaganda_url: data.url, midia_propaganda_tipo: data.tipo };
+  });
+
+/**
+ * Só limpa a referência no banco — não apaga o arquivo do Storage (o admin
+ * pode trocar de ideia rápido, e limpar storage por URL é frágil; o custo
+ * de um arquivo órfão ocasional é baixo pra unidade única desse app).
+ */
+export const removerMidiaPropaganda = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ ok: true }> => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("unidades")
+      .update({ midia_propaganda_url: null, midia_propaganda_tipo: null })
+      .eq("id", unidadeId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 export type HorarioDiaUnidade = {
   dia_semana: number;
   ativo: boolean;
