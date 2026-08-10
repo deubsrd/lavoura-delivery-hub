@@ -103,14 +103,14 @@ function Index() {
         <div
           className={
             temMidia
-              ? "mx-auto grid max-w-6xl items-center md:grid-cols-2 md:gap-10"
+              ? "grid items-center md:grid-cols-2"
               : "mx-auto max-w-2xl px-5 pt-12 pb-16 sm:pt-16 sm:pb-20"
           }
         >
           <div
             className={
               temMidia
-                ? "px-5 py-12 text-center sm:py-16 md:py-24 md:text-left"
+                ? "mx-auto w-full max-w-3xl px-5 py-12 text-center sm:py-16 md:py-24 md:mx-0 md:ml-auto md:pr-10 md:pl-5 md:text-left"
                 : "text-center"
             }
           >
