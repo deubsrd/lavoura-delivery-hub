@@ -300,8 +300,8 @@ export type PrecosBasePublico = {
 /**
  * Preços base (lavagem/secagem por cesto + atendente fixo) de uma
  * unidade, para a prévia de valor "ao vivo" na Etapa 4 do formulário
- * público, antes de saber endereço/distância/promoção do dia. Só esses 3
- * números — nada sensível, já é exatamente o que aparece no
+ * público, antes de saber endereço/distância/preço de horário especial. Só
+ * esses 3 números — nada sensível, já é exatamente o que aparece no
  * detalhamento da Etapa 5 pra todo mundo.
  */
 export const obterPrecosBase = createServerFn({ method: "GET" })
@@ -462,32 +462,29 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
     ];
   }
 
-  const [{ data: precos }, { data: faixas }, { data: promocoes }, { data: precosPorHorario }] =
-    await Promise.all([
-      supabaseAdmin
-        .from("configuracao_precos")
-        .select("valor_lavagem_por_cesto, valor_secagem_por_cesto, valor_atendente_por_pedido")
-        .eq("unidade_id", unidade.id)
-        .maybeSingle(),
-      supabaseAdmin
-        .from("faixas_delivery")
-        .select("distancia_ate_km, valor")
-        .eq("unidade_id", unidade.id),
-      supabaseAdmin
-        .from("promocoes_dia_semana")
-        .select("dia_semana, tipo_desconto, valor, aplica_em, ativo")
-        .eq("unidade_id", unidade.id),
-      supabaseAdmin
-        .from("precos_por_horario")
-        .select("dia_semana, hora_inicio, hora_fim, valor_cesto")
-        .eq("unidade_id", unidade.id),
-    ]);
+  // Promoção/desconto por dia da semana foi removida do cálculo (decisão de
+  // negócio — ver PR de remoção de promoções), então não busca mais
+  // promocoes_dia_semana aqui.
+  const [{ data: precos }, { data: faixas }, { data: precosPorHorario }] = await Promise.all([
+    supabaseAdmin
+      .from("configuracao_precos")
+      .select("valor_lavagem_por_cesto, valor_secagem_por_cesto, valor_atendente_por_pedido")
+      .eq("unidade_id", unidade.id)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("faixas_delivery")
+      .select("distancia_ate_km, valor")
+      .eq("unidade_id", unidade.id),
+    supabaseAdmin
+      .from("precos_por_horario")
+      .select("dia_semana, hora_inicio, hora_fim, valor_cesto")
+      .eq("unidade_id", unidade.id),
+  ]);
   if (!precos) throw new Error("Preços não configurados para esta unidade. Contate o suporte.");
 
   const preco = calcularPreco(
     precos,
     faixas ?? [],
-    promocoes ?? [],
     precosPorHorario ?? [],
     input.quantidade_cestos,
     pernas,

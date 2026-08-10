@@ -13,16 +13,6 @@
 
 const OFFSET_MINUTOS_UNIDADE = -4 * 60;
 
-const NOMES_DIA_SEMANA = [
-  "domingo",
-  "segunda-feira",
-  "terça-feira",
-  "quarta-feira",
-  "quinta-feira",
-  "sexta-feira",
-  "sábado",
-];
-
 import { formatarMoeda } from "./lavoura";
 
 const MINUTOS_LAVAR = 30;
@@ -412,14 +402,6 @@ export type ConfiguracaoPrecos = {
 
 export type FaixaDelivery = { distancia_ate_km: number; valor: number };
 
-export type PromocaoDiaSemana = {
-  dia_semana: number;
-  tipo_desconto: "percentual" | "valor_fixo";
-  valor: number;
-  aplica_em: "tudo" | "lavagem" | "secagem" | "atendente" | "delivery";
-  ativo: boolean;
-};
-
 /**
  * Preço customizado POR SERVIÇO (lavagem OU secagem — a mesma taxa vale
  * pras duas) pra uma janela de dia da semana + horário — substitui
@@ -471,6 +453,13 @@ export type ResumoPreco = {
   valorAtendente: number;
   valorDelivery: number | null;
   deliveryIndisponivel: boolean;
+  /**
+   * Função de desconto/promoção removida do cálculo (ver PR de remoção de
+   * promoções). Campos mantidos só porque `pedidos_delivery` ainda tem as
+   * colunas `valor_desconto`/`desconto_descricao` (não foi feita migração
+   * pra evitar mexer no schema) — sempre `0` / `null` a partir daqui, nunca
+   * chegam a ser subtraídos do total.
+   */
   valorDesconto: number;
   descontoDescricao: string | null;
   valorTotal: number;
@@ -492,13 +481,12 @@ const ROTULO_PERNA: Record<PernaDelivery["tipo"], string> = {
 export function calcularPreco(
   precos: ConfiguracaoPrecos,
   faixas: FaixaDelivery[],
-  promocoes: PromocaoDiaSemana[],
   precosPorHorario: PrecoPorHorario[],
   quantidadeCestos: number,
   pernas: PernaDelivery[],
-  dataBuscaParaPromocao: Date,
+  dataBusca: Date,
 ): ResumoPreco {
-  const regraHorario = buscarPrecoPorHorario(precosPorHorario, dataBuscaParaPromocao);
+  const regraHorario = buscarPrecoPorHorario(precosPorHorario, dataBusca);
 
   let valorLavagem: number;
   let valorSecagem: number;
@@ -569,37 +557,18 @@ export function calcularPreco(
     detalhamento.push({ rotulo: "Delivery (fora da área de cobertura, a confirmar)", valor: 0 });
   }
 
-  const diaSemana = diaSemanaLocal(dataBuscaParaPromocao);
-  const promo = promocoes.find((p) => p.ativo && p.dia_semana === diaSemana);
-
-  let valorDesconto = 0;
-  let descontoDescricao: string | null = null;
-  if (promo) {
-    const base = valorBaseParaDesconto(
-      promo.aplica_em,
-      valorLavagem,
-      valorSecagem,
-      valorAtendente,
-      valorDelivery ?? 0,
-    );
-    valorDesconto =
-      promo.tipo_desconto === "percentual"
-        ? base * (promo.valor / 100)
-        : Math.min(promo.valor, base);
-    if (valorDesconto > 0) {
-      const nomeDia = NOMES_DIA_SEMANA[diaSemana];
-      const rotuloValor =
-        promo.tipo_desconto === "percentual"
-          ? `-${promo.valor}%`
-          : `-${formatarMoeda(promo.valor)}`;
-      descontoDescricao = `Desconto de ${nomeDia} (${rotuloValor})`;
-      detalhamento.push({ rotulo: descontoDescricao, valor: -valorDesconto });
-    }
-  }
+  // Desconto/promoção por dia da semana foi removido do cálculo (decisão de
+  // negócio — ver PR de remoção de promoções). O total do pedido passou a
+  // ser só a soma dos serviços, sem nenhuma subtração. `valorDesconto` e
+  // `descontoDescricao` seguem retornados como neutros (0 / null) só por
+  // compatibilidade com as colunas `valor_desconto`/`desconto_descricao` de
+  // `pedidos_delivery`, que não foram removidas do banco.
+  const valorDesconto = 0;
+  const descontoDescricao: string | null = null;
 
   const valorTotal = Math.max(
     0,
-    valorLavagem + valorSecagem + valorAtendente + (valorDelivery ?? 0) - valorDesconto,
+    valorLavagem + valorSecagem + valorAtendente + (valorDelivery ?? 0),
   );
 
   return {
@@ -613,26 +582,4 @@ export function calcularPreco(
     valorTotal,
     detalhamento,
   };
-}
-
-function valorBaseParaDesconto(
-  aplicaEm: PromocaoDiaSemana["aplica_em"],
-  lavagem: number,
-  secagem: number,
-  atendente: number,
-  delivery: number,
-): number {
-  switch (aplicaEm) {
-    case "lavagem":
-      return lavagem;
-    case "secagem":
-      return secagem;
-    case "atendente":
-      return atendente;
-    case "delivery":
-      return delivery;
-    case "tudo":
-    default:
-      return lavagem + secagem + atendente + delivery;
-  }
 }

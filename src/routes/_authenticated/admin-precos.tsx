@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/admin-precos")({
   head: () => ({
-    meta: [{ title: "Preços e promoções — Lavoura" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Preços — Lavoura" }, { name: "robots", content: "noindex" }],
   }),
   component: AdminPrecosPage,
 });
@@ -28,14 +28,6 @@ const DIAS_SEMANA = [
   "Sexta-feira",
   "Sábado",
 ];
-
-const APLICA_EM_LABEL: Record<string, string> = {
-  tudo: "Tudo",
-  lavagem: "Só lavagem",
-  secagem: "Só secagem",
-  atendente: "Só serviço da atendente",
-  delivery: "Só delivery",
-};
 
 type ConfiguracaoPrecos = {
   id: string;
@@ -51,14 +43,6 @@ type PrecoHorario = {
   hora_inicio: string;
   hora_fim: string;
   valor_cesto: number;
-};
-type PromocaoDiaSemana = {
-  id: string;
-  dia_semana: number;
-  tipo_desconto: "percentual" | "valor_fixo";
-  valor: number;
-  aplica_em: "tudo" | "lavagem" | "secagem" | "atendente" | "delivery";
-  ativo: boolean;
 };
 
 function AdminPrecosPage() {
@@ -108,20 +92,6 @@ function AdminPrecosPage() {
     },
   });
 
-  const promocoes = useQuery({
-    queryKey: ["promocoes", unidadeId],
-    enabled: !!unidadeId && souAdmin,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("promocoes_dia_semana")
-        .select("*")
-        .eq("unidade_id", unidadeId!)
-        .order("dia_semana");
-      if (error) throw error;
-      return (data ?? []) as PromocaoDiaSemana[];
-    },
-  });
-
   const precosHorario = useQuery({
     queryKey: ["precos-horario", unidadeId],
     enabled: !!unidadeId && souAdmin,
@@ -156,7 +126,7 @@ function AdminPrecosPage() {
       <main className="mx-auto mt-16 max-w-md px-5 text-center">
         <h1 className="text-2xl">Acesso restrito</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Só administradores da unidade podem configurar preços, faixas de delivery e promoções.
+          Só administradores da unidade podem configurar preços e faixas de delivery.
         </p>
       </main>
     );
@@ -164,7 +134,7 @@ function AdminPrecosPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-10 px-5 py-8">
-      <PaginaHeader titulo="Preços e promoções" />
+      <PaginaHeader titulo="Preços" />
 
       <SecaoPrecosBase
         unidadeId={unidadeId!}
@@ -180,11 +150,6 @@ function AdminPrecosPage() {
         unidadeId={unidadeId!}
         faixas={faixas.data ?? []}
         onMudou={() => queryClient.invalidateQueries({ queryKey: ["faixas-delivery", unidadeId] })}
-      />
-      <SecaoPromocoes
-        unidadeId={unidadeId!}
-        promocoes={promocoes.data ?? []}
-        onMudou={() => queryClient.invalidateQueries({ queryKey: ["promocoes", unidadeId] })}
       />
     </main>
   );
@@ -504,144 +469,8 @@ function SecaoFaixas({
   );
 }
 
-function SecaoPromocoes({
-  unidadeId,
-  promocoes,
-  onMudou,
-}: {
-  unidadeId: string;
-  promocoes: PromocaoDiaSemana[];
-  onMudou: () => void;
-}) {
-  const [diaSemana, setDiaSemana] = useState("2");
-  const [tipoDesconto, setTipoDesconto] = useState<"percentual" | "valor_fixo">("percentual");
-  const [valor, setValor] = useState("");
-  const [aplicaEm, setAplicaEm] = useState<PromocaoDiaSemana["aplica_em"]>("tudo");
-
-  const adicionar = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from("promocoes_dia_semana").insert({
-        unidade_id: unidadeId,
-        dia_semana: Number(diaSemana),
-        tipo_desconto: tipoDesconto,
-        valor: Number(valor),
-        aplica_em: aplicaEm,
-        ativo: true,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setValor("");
-      onMudou();
-    },
-    onError: () => toast.error("Não foi possível adicionar a promoção."),
-  });
-
-  const alternarAtivo = useMutation({
-    mutationFn: async (promo: PromocaoDiaSemana) => {
-      const { error } = await supabase
-        .from("promocoes_dia_semana")
-        .update({ ativo: !promo.ativo })
-        .eq("id", promo.id);
-      if (error) throw error;
-    },
-    onSuccess: onMudou,
-    onError: () => toast.error("Não foi possível atualizar a promoção."),
-  });
-
-  const remover = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("promocoes_dia_semana").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: onMudou,
-    onError: () => toast.error("Não foi possível remover a promoção."),
-  });
-
-  return (
-    <section className="space-y-3">
-      <h2 className="text-2xl">Promoções por dia da semana</h2>
-      <div className="space-y-2">
-        {promocoes.map((p) => (
-          <div key={p.id} className="flex items-center justify-between rounded-lg border bg-card p-3 text-sm">
-            <div>
-              <p className={p.ativo ? "font-medium" : "font-medium text-muted-foreground line-through"}>
-                {DIAS_SEMANA[p.dia_semana]} · {p.tipo_desconto === "percentual" ? `${p.valor}%` : `R$ ${p.valor.toFixed(2)}`} · {APLICA_EM_LABEL[p.aplica_em]}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => alternarAtivo.mutate(p)}
-                disabled={alternarAtivo.isPending}
-                className="text-xs text-muted-foreground underline"
-              >
-                {p.ativo ? "Desativar" : "Ativar"}
-              </button>
-              <button
-                onClick={() => remover.mutate(p.id)}
-                disabled={remover.isPending}
-                aria-label="Remover promoção"
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-        {promocoes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhuma promoção cadastrada.</p>
-        ) : null}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="space-y-1.5">
-          <Label>Dia</Label>
-          <select
-            value={diaSemana}
-            onChange={(e) => setDiaSemana(e.target.value)}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-          >
-            {DIAS_SEMANA.map((nome, i) => (
-              <option key={nome} value={i}>
-                {nome}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Tipo</Label>
-          <select
-            value={tipoDesconto}
-            onChange={(e) => setTipoDesconto(e.target.value as "percentual" | "valor_fixo")}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-          >
-            <option value="percentual">Percentual</option>
-            <option value="valor_fixo">Valor fixo</option>
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Valor</Label>
-          <Input type="number" step="0.01" min="0" className="w-24" value={valor} onChange={(e) => setValor(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Aplica em</Label>
-          <select
-            value={aplicaEm}
-            onChange={(e) => setAplicaEm(e.target.value as PromocaoDiaSemana["aplica_em"])}
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-          >
-            {Object.entries(APLICA_EM_LABEL).map(([valor, label]) => (
-              <option key={valor} value={valor}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <Button onClick={() => adicionar.mutate()} disabled={adicionar.isPending || !valor}>
-          {adicionar.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-          Adicionar
-        </Button>
-      </div>
-    </section>
-  );
-}
+// Seção de promoções por dia da semana removida — a função de
+// desconto/promoção não afeta mais o preço do pedido (decisão de negócio).
+// A tabela `promocoes_dia_semana` continua existindo no banco (não foi
+// removida por segurança), só não tem mais UI de cadastro nem efeito no
+// cálculo. Ver pedido-calculo.server.ts.

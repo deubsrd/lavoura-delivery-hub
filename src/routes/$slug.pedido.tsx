@@ -128,7 +128,8 @@ function PedidoPage() {
   // Preços base (lavagem/secagem/atendente) buscados uma vez, pra mostrar
   // uma prévia de valor "ao vivo" na Etapa 4 conforme a quantidade de
   // cestos muda — sem round-trip ao servidor a cada clique. O valor final
-  // (com delivery e desconto do dia) só sai no resumo da Etapa 5.
+  // (com delivery e possível preço de horário especial) só sai no resumo
+  // da Etapa 5.
   const precosBase = useQuery({
     queryKey: ["precos-base", unidade.slug],
     queryFn: () => obterPrecosBaseFn({ data: { slug: unidade.slug } }),
@@ -672,7 +673,8 @@ function PedidoPage() {
                   <span>{formatarMoeda(estimativaCestos.subtotal)}</span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  O valor final, com delivery e possíveis descontos do dia, aparece no resumo.
+                  O valor final, com delivery e possível preço de horário especial, aparece no
+                  resumo.
                 </p>
               </div>
             ) : null}
