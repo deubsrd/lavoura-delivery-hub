@@ -11,8 +11,11 @@ import { AcessoRestrito } from "@/components/acesso-restrito";
 import { PaginaHeader } from "@/components/pagina-header";
 import {
   obterHorariosUnidade,
+  obterMidiaPropaganda,
+  removerMidiaPropaganda,
   salvarHorariosUnidade,
   salvarIdentificacaoUnidade,
+  salvarMidiaPropaganda,
   type HorarioDiaUnidade,
 } from "@/lib/unidade.functions";
 import { DIA_SEMANA_LABEL } from "@/lib/lavoura";
@@ -42,6 +45,7 @@ function IdentificacaoPage() {
     <main className="mx-auto max-w-2xl space-y-6 px-5 py-8">
       <PaginaHeader titulo="Identificação da unidade" />
       <SecaoIdentificacao unidadeId={atendente.unidadeId!} />
+      <SecaoMidiaPropaganda unidadeId={atendente.unidadeId!} />
       <SecaoHorarios />
     </main>
   );
@@ -113,6 +117,126 @@ function SecaoIdentificacao({ unidadeId }: { unidadeId: string }) {
         {salvar.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
         Salvar
       </Button>
+    </section>
+  );
+}
+
+const LIMITE_MB: Record<"imagem" | "video", number> = { imagem: 10, video: 50 };
+
+/**
+ * Upload direto do navegador pro Supabase Storage (bucket
+ * `midia-propaganda`, público) — não passa o arquivo pelo servidor do app
+ * (Cloudflare Worker), só a URL final é salva via salvarMidiaPropaganda.
+ * Vídeo grande por um createServerFn não é viável nesse deploy.
+ */
+function SecaoMidiaPropaganda({ unidadeId }: { unidadeId: string }) {
+  const queryClient = useQueryClient();
+  const buscarMidia = useServerFn(obterMidiaPropaganda);
+  const salvarMidia = useServerFn(salvarMidiaPropaganda);
+  const removerMidiaFn = useServerFn(removerMidiaPropaganda);
+
+  const [enviando, setEnviando] = useState(false);
+
+  const midiaQuery = useQuery({
+    queryKey: ["midia-propaganda"],
+    queryFn: () => buscarMidia(),
+  });
+
+  async function enviarArquivo(file: File) {
+    const tipo: "imagem" | "video" = file.type.startsWith("video/") ? "video" : "imagem";
+    const limiteMb = LIMITE_MB[tipo];
+    if (file.size > limiteMb * 1024 * 1024) {
+      toast.error(
+        `Arquivo muito grande (máx. ${limiteMb} MB para ${tipo === "video" ? "vídeo" : "imagem"}).`,
+      );
+      return;
+    }
+    setEnviando(true);
+    try {
+      const extensao = file.name.split(".").pop() ?? (tipo === "video" ? "mp4" : "jpg");
+      const caminho = `${unidadeId}/${Date.now()}.${extensao}`;
+      const { error: erroUpload } = await supabase.storage
+        .from("midia-propaganda")
+        .upload(caminho, file, file.type ? { contentType: file.type } : {});
+      if (erroUpload) throw erroUpload;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("midia-propaganda").getPublicUrl(caminho);
+      await salvarMidia({ data: { url: publicUrl, tipo } });
+      toast.success("Mídia de propaganda atualizada.");
+      queryClient.invalidateQueries({ queryKey: ["midia-propaganda"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível enviar o arquivo.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  const remover = useMutation({
+    mutationFn: () => removerMidiaFn(),
+    onSuccess: () => {
+      toast.success("Mídia removida.");
+      queryClient.invalidateQueries({ queryKey: ["midia-propaganda"] });
+    },
+    onError: (error: Error) => toast.error(error.message || "Não foi possível remover."),
+  });
+
+  const midia = midiaQuery.data;
+
+  return (
+    <section className="space-y-4 rounded-xl border bg-card p-4 shadow-card">
+      <div>
+        <h2 className="text-lg font-medium">Mídia de propaganda</h2>
+        <p className="text-sm text-muted-foreground">
+          Imagem ou vídeo mostrado ao lado do texto na página inicial pública (imagem até{" "}
+          {LIMITE_MB.imagem} MB, vídeo até {LIMITE_MB.video} MB).
+        </p>
+      </div>
+
+      {midiaQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Carregando…</p>
+      ) : midia?.midia_propaganda_url ? (
+        <div className="space-y-2">
+          {midia.midia_propaganda_tipo === "video" ? (
+            <video
+              src={midia.midia_propaganda_url}
+              controls
+              className="max-h-64 w-full rounded-lg bg-black"
+            />
+          ) : (
+            <img
+              src={midia.midia_propaganda_url}
+              alt="Mídia de propaganda atual"
+              className="max-h-64 w-full rounded-lg object-cover"
+            />
+          )}
+          <Button variant="outline" onClick={() => remover.mutate()} disabled={remover.isPending}>
+            {remover.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+            Remover mídia
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nenhuma mídia configurada ainda.</p>
+      )}
+
+      <div className="space-y-1.5">
+        <Label>{midia?.midia_propaganda_url ? "Trocar arquivo" : "Enviar arquivo"}</Label>
+        <Input
+          type="file"
+          accept="image/*,video/*"
+          disabled={enviando}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) enviarArquivo(file);
+          }}
+        />
+        {enviando ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" /> Enviando…
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }

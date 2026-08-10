@@ -25,6 +25,10 @@ export type UnidadePublica = {
   cidade: string;
   prazo_padrao_horas: number;
   hora_limite_pedido: string;
+  // Diferente dos campos acima, esses dois são de fato opcionais na tabela
+  // (a unidade pode nunca ter configurado uma mídia) — só ficam null.
+  midia_propaganda_url: string | null;
+  midia_propaganda_tipo: "imagem" | "video" | null;
 };
 
 export const getUnidadeBySlug = createServerFn({ method: "GET" })
@@ -36,13 +40,16 @@ export const getUnidadeBySlug = createServerFn({ method: "GET" })
     const supabase = getPublicClient();
     const { data: unidade, error } = await supabase
       .from("unidades_publico")
-      .select("id, nome, slug, cidade, prazo_padrao_horas, hora_limite_pedido")
+      .select(
+        "id, nome, slug, cidade, prazo_padrao_horas, hora_limite_pedido, midia_propaganda_url, midia_propaganda_tipo",
+      )
       .eq("slug", data.slug)
       .maybeSingle();
     if (error) throw new Error(error.message);
     // As colunas da view unidades_publico são espelhos diretos de colunas
     // NOT NULL em unidades; o gerador de tipos do Supabase marca colunas de
-    // view como nullable de forma genérica, mas na prática nunca são.
+    // view como nullable de forma genérica, mas na prática nunca são —
+    // exceto midia_propaganda_*, que são de fato opcionais.
     return unidade as UnidadePublica | null;
   });
 

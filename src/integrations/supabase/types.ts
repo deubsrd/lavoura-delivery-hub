@@ -586,6 +586,8 @@ export type Database = {
           id: string
           latitude: number | null
           longitude: number | null
+          midia_propaganda_tipo: string | null
+          midia_propaganda_url: string | null
           nome: string
           prazo_padrao_horas: number
           quantidade_maquinas: number
@@ -602,6 +604,8 @@ export type Database = {
           id?: string
           latitude?: number | null
           longitude?: number | null
+          midia_propaganda_tipo?: string | null
+          midia_propaganda_url?: string | null
           nome: string
           prazo_padrao_horas?: number
           quantidade_maquinas?: number
@@ -618,6 +622,8 @@ export type Database = {
           id?: string
           latitude?: number | null
           longitude?: number | null
+          midia_propaganda_tipo?: string | null
+          midia_propaganda_url?: string | null
           nome?: string
           prazo_padrao_horas?: number
           quantidade_maquinas?: number
@@ -635,6 +641,8 @@ export type Database = {
           hora_fechamento: string | null
           hora_limite_pedido: string | null
           id: string | null
+          midia_propaganda_tipo: string | null
+          midia_propaganda_url: string | null
           nome: string | null
           prazo_padrao_horas: number | null
           slug: string | null
@@ -646,6 +654,8 @@ export type Database = {
           hora_fechamento?: string | null
           hora_limite_pedido?: string | null
           id?: string | null
+          midia_propaganda_tipo?: string | null
+          midia_propaganda_url?: string | null
           nome?: string | null
           prazo_padrao_horas?: number | null
           slug?: string | null
@@ -657,6 +667,8 @@ export type Database = {
           hora_fechamento?: string | null
           hora_limite_pedido?: string | null
           id?: string | null
+          midia_propaganda_tipo?: string | null
+          midia_propaganda_url?: string | null
           nome?: string | null
           prazo_padrao_horas?: number | null
           slug?: string | null
