@@ -144,7 +144,9 @@ function Index() {
               {midiaTipo === "video" ? (
                 <video
                   src={midiaUrl}
-                  controls
+                  autoPlay
+                  muted
+                  loop
                   playsInline
                   className="h-full w-full object-cover"
                 />
