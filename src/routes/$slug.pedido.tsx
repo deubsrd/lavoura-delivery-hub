@@ -795,8 +795,10 @@ function PedidoPage() {
             recalculando={resumoMutation.isPending}
             enviando={enviarMutation.isPending}
             onVoltar={voltar}
-            onAgendarProximoDia={() => resumoMutation.mutate(true)}
             onConfirmar={() => enviarMutation.mutate()}
+            onConfirmarForaDoHorario={() =>
+              resumoMutation.mutate(true, { onSuccess: () => enviarMutation.mutate() })
+            }
           />
         ) : null}
 
@@ -841,40 +843,31 @@ function EtapaResumo({
   recalculando,
   enviando,
   onVoltar,
-  onAgendarProximoDia,
   onConfirmar,
+  onConfirmarForaDoHorario,
 }: {
   resumo: ResumoPedido;
   usarProximoDiaUtil: boolean;
   recalculando: boolean;
   enviando: boolean;
   onVoltar: () => void;
-  onAgendarProximoDia: () => void;
   onConfirmar: () => void;
+  onConfirmarForaDoHorario: () => void;
 }) {
-  if (resumo.foraDoHorario && !usarProximoDiaUtil) {
-    return (
-      <Bloco titulo="Fora do horário de atendimento">
-        <p className="text-sm text-muted-foreground">
-          Não conseguimos encaixar esse pedido no nosso horário de atendimento agora. Deseja agendar
-          automaticamente para o próximo horário livre, em{" "}
-          {formatarDataHora(resumo.proximoHorarioUtilIso)}?
-        </p>
-        <div className="flex gap-2">
-          <Button variant="outline" className="flex-1" onClick={onVoltar}>
-            Não, voltar
-          </Button>
-          <Button
-            className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
-            onClick={onAgendarProximoDia}
-            disabled={recalculando}
-          >
-            {recalculando ? <Loader2 className="size-4 animate-spin" /> : null}
-            Sim, agendar
-          </Button>
-        </div>
-      </Bloco>
-    );
+  // O resumo já vem com o horário de coleta calculado — quando a unidade
+  // está fora do horário de atendimento, o servidor já atribui o próximo
+  // horário livre desde o primeiro cálculo (ver montarResumo). Por isso dá
+  // pra mostrar o resumo direto, sem uma tela bloqueante antes: só pede
+  // confirmação explícita do reagendamento automático no momento de
+  // confirmar o pedido.
+  const [perguntando, setPerguntando] = useState(false);
+
+  function clicarConfirmar() {
+    if (resumo.foraDoHorario && !usarProximoDiaUtil) {
+      setPerguntando(true);
+      return;
+    }
+    onConfirmar();
   }
 
   return (
@@ -898,24 +891,53 @@ function EtapaResumo({
       </div>
       <p className="text-sm text-muted-foreground">
         Horário de coleta: {formatarDataHora(resumo.horarioColetaIso)}
-        {usarProximoDiaUtil ? " (agendado automaticamente)" : ""}
+        {resumo.foraDoHorario ? " (agendado automaticamente)" : ""}
       </p>
       <p className="text-sm text-muted-foreground">
         Previsão de retorno: {formatarDataHora(resumo.previstoIso)}
       </p>
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={onVoltar}>
-          Voltar
-        </Button>
-        <Button
-          onClick={onConfirmar}
-          disabled={enviando}
-          className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
-        >
-          {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
-          Confirmar pedido
-        </Button>
-      </div>
+
+      {resumo.foraDoHorario ? (
+        <p className="rounded-lg bg-secondary p-3 text-xs text-muted-foreground">
+          Estamos fora do horário de atendimento agora, por isso já agendamos automaticamente para
+          o próximo horário livre mostrado acima.
+        </p>
+      ) : null}
+
+      {perguntando ? (
+        <div className="space-y-2 rounded-lg border border-dashed p-3">
+          <p className="text-sm text-muted-foreground">
+            Confirma o agendamento automático pra esse horário?
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPerguntando(false)}>
+              Cancelar
+            </Button>
+            <Button
+              className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
+              onClick={onConfirmarForaDoHorario}
+              disabled={recalculando || enviando}
+            >
+              {recalculando || enviando ? <Loader2 className="size-4 animate-spin" /> : null}
+              Sim, confirmar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onVoltar}>
+            Voltar
+          </Button>
+          <Button
+            onClick={clicarConfirmar}
+            disabled={enviando}
+            className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+          >
+            {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
+            Confirmar pedido
+          </Button>
+        </div>
+      )}
     </Bloco>
   );
 }
