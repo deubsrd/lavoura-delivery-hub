@@ -22,6 +22,7 @@ import { isValidCpf, maskCpf, soDigitosCpf } from "@/lib/cpf";
 import {
   DIA_SEMANA_LABEL,
   TIPO_SERVICO_LABEL,
+  chaveDiaBoaVista,
   formatarDataHora,
   formatarMoeda,
   horaCurta,
@@ -140,13 +141,16 @@ function PedidoPage() {
     queryFn: () => obterHorariosPublicoFn({ data: { slug: unidade.slug } }),
   });
 
-  // A unidade só aceita escolha manual de horário de coleta enquanto está
-  // atendendo normalmente (dentro do expediente, antes do horário-limite de
-  // pedido). Fora disso o formulário nem pergunta — pula direto pro aviso
-  // de "fora do horário" na Etapa 5, que agenda automaticamente pro
-  // próximo horário livre (ver EtapaResumo). Enquanto ainda não sabemos
-  // (carregando), não exige escolha pra não travar o fluxo à toa.
+  // Enquanto a unidade está atendendo normalmente, a Etapa 4 já pede pra
+  // escolher o horário de coleta antes de ver o resumo. Fora do horário, a
+  // escolha acontece na própria Etapa 5 (ver EtapaResumo) — o resumo
+  // aparece com uma sugestão automática (o próximo horário livre) e a
+  // grade de horários pra trocar por outro, se preferir. Enquanto ainda
+  // não sabemos se está atendendo (carregando), não exige escolha na
+  // Etapa 4 pra não travar o fluxo à toa.
   const precisaEscolherHorario = horariosPublico.data?.atendendoAgora === true;
+
+  const [resumo, setResumo] = useState<ResumoPedido | null>(null);
 
   const [etapa, setEtapa] = useState<Etapa>(1);
   const [pilha, setPilha] = useState<Etapa[]>([]);
@@ -169,11 +173,14 @@ function PedidoPage() {
   // parado na tela escolhendo (outro cliente pode fechar um horário
   // nesse meio tempo); sem isso, um slot já ocupado só sumiria da tela
   // quando o cliente mudasse a quantidade de cestos ou tentasse enviar.
+  // Fora do horário a grade também precisa carregar — é ela que aparece
+  // na Etapa 5 pra escolher o horário no lugar da sugestão automática.
+  const precisaGradeDeHorarios = precisaEscolherHorario || resumo?.foraDoHorario === true;
   const slotsColeta = useQuery({
     queryKey: ["slots-coleta", unidade.slug, cestos],
     queryFn: () => obterSlotsColetaFn({ data: { slug: unidade.slug, quantidade_cestos: cestos } }),
-    enabled: precisaEscolherHorario,
-    refetchInterval: precisaEscolherHorario ? 20_000 : false,
+    enabled: precisaGradeDeHorarios,
+    refetchInterval: precisaGradeDeHorarios ? 20_000 : false,
   });
   const [horarioColeta, setHorarioColeta] = useState<string | null>(null);
   const [diaColetaSelecionado, setDiaColetaSelecionado] = useState<string | null>(null);
@@ -189,6 +196,16 @@ function PedidoPage() {
     );
     if (!aindaDisponivel) setHorarioColeta(null);
   }, [slotsColeta.data, horarioColeta]);
+
+  // Fora do horário, pré-seleciona a sugestão automática (o próximo
+  // horário livre) assim que o resumo chega — o cliente já vê um horário
+  // marcado na grade da Etapa 5 e pode simplesmente confirmar, ou trocar
+  // por outro antes de enviar.
+  useEffect(() => {
+    if (!resumo?.foraDoHorario || horarioColeta) return;
+    setHorarioColeta(resumo.horarioColetaIso);
+    setDiaColetaSelecionado(chaveDiaBoaVista(resumo.horarioColetaIso));
+  }, [resumo, horarioColeta]);
 
   function ajustarCestos(delta: number) {
     setCestos((c) => Math.min(50, Math.max(1, c + delta)));
@@ -214,9 +231,6 @@ function PedidoPage() {
   const [observacoes, setObservacoes] = useState("");
   const [armadilha, setArmadilha] = useState("");
   const [erros, setErros] = useState<Record<string, string>>({});
-
-  const [resumo, setResumo] = useState<ResumoPedido | null>(null);
-  const [usarProximoDiaUtil, setUsarProximoDiaUtil] = useState(false);
 
   const [confirmado, setConfirmado] = useState<{
     data_prevista_retorno: string | null;
@@ -334,7 +348,7 @@ function PedidoPage() {
   }
 
   const resumoMutation = useMutation({
-    mutationFn: (usarProximoDia: boolean) =>
+    mutationFn: () =>
       calcularResumoFn({
         data: {
           slug: unidade.slug,
@@ -350,12 +364,10 @@ function PedidoPage() {
           numero_entrega: entrega.numero || null,
           bairro_entrega: entrega.bairro || null,
           horario_coleta: horarioColeta ?? undefined,
-          usar_proximo_dia_util: usarProximoDia,
         },
       }),
-    onSuccess: (novoResumo, usarProximoDia) => {
+    onSuccess: (novoResumo) => {
       setResumo(novoResumo);
-      setUsarProximoDiaUtil(usarProximoDia);
       if (etapa !== 5) ir(5);
     },
     onError: () => toast.error("Não foi possível calcular o resumo do pedido."),
@@ -377,7 +389,7 @@ function PedidoPage() {
     }
     setErros(e);
     if (Object.keys(e).length > 0) return;
-    resumoMutation.mutate(false);
+    resumoMutation.mutate();
   }
 
   const enviarMutation = useMutation({
@@ -403,7 +415,6 @@ function PedidoPage() {
           complemento_entrega: entrega.complemento || null,
           referencia_entrega: entrega.referencia || null,
           horario_coleta: horarioColeta ?? undefined,
-          usar_proximo_dia_util: usarProximoDiaUtil,
           armadilha,
         },
       }),
@@ -791,14 +802,19 @@ function PedidoPage() {
         {etapa === 5 && resumo ? (
           <EtapaResumo
             resumo={resumo}
-            usarProximoDiaUtil={usarProximoDiaUtil}
             recalculando={resumoMutation.isPending}
             enviando={enviarMutation.isPending}
             onVoltar={voltar}
             onConfirmar={() => enviarMutation.mutate()}
-            onConfirmarForaDoHorario={() =>
-              resumoMutation.mutate(true, { onSuccess: () => enviarMutation.mutate() })
+            onConfirmarComHorarioEscolhido={() =>
+              resumoMutation.mutate(undefined, { onSuccess: () => enviarMutation.mutate() })
             }
+            dias={slotsColeta.data ?? []}
+            carregandoSlots={slotsColeta.isPending}
+            diaSelecionado={diaColetaSelecionado}
+            onSelecionarDia={setDiaColetaSelecionado}
+            horarioSelecionado={horarioColeta}
+            onSelecionarHorario={setHorarioColeta}
           />
         ) : null}
 
@@ -839,36 +855,32 @@ function ProgressoEtapas({ atual }: { atual: Etapa }) {
 
 function EtapaResumo({
   resumo,
-  usarProximoDiaUtil,
   recalculando,
   enviando,
   onVoltar,
   onConfirmar,
-  onConfirmarForaDoHorario,
+  onConfirmarComHorarioEscolhido,
+  dias,
+  carregandoSlots,
+  diaSelecionado,
+  onSelecionarDia,
+  horarioSelecionado,
+  onSelecionarHorario,
 }: {
   resumo: ResumoPedido;
-  usarProximoDiaUtil: boolean;
   recalculando: boolean;
   enviando: boolean;
   onVoltar: () => void;
   onConfirmar: () => void;
-  onConfirmarForaDoHorario: () => void;
+  onConfirmarComHorarioEscolhido: () => void;
+  dias: DiaColetaPublico[];
+  carregandoSlots: boolean;
+  diaSelecionado: string | null;
+  onSelecionarDia: (data: string) => void;
+  horarioSelecionado: string | null;
+  onSelecionarHorario: (horarioIso: string) => void;
 }) {
-  // O resumo já vem com o horário de coleta calculado — quando a unidade
-  // está fora do horário de atendimento, o servidor já atribui o próximo
-  // horário livre desde o primeiro cálculo (ver montarResumo). Por isso dá
-  // pra mostrar o resumo direto, sem uma tela bloqueante antes: só pede
-  // confirmação explícita do reagendamento automático no momento de
-  // confirmar o pedido.
-  const [perguntando, setPerguntando] = useState(false);
-
-  function clicarConfirmar() {
-    if (resumo.foraDoHorario && !usarProximoDiaUtil) {
-      setPerguntando(true);
-      return;
-    }
-    onConfirmar();
-  }
+  const enviandoOuRecalculando = enviando || recalculando;
 
   return (
     <Bloco titulo="Resumo do pedido">
@@ -889,55 +901,50 @@ function EtapaResumo({
           <span>{formatarMoeda(resumo.valorTotal)}</span>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Horário de coleta: {formatarDataHora(resumo.horarioColetaIso)}
-        {resumo.foraDoHorario ? " (agendado automaticamente)" : ""}
-      </p>
+
+      {resumo.foraDoHorario ? (
+        <div className="space-y-3 rounded-xl border-2 border-accent bg-accent/10 p-4">
+          <div className="flex gap-3">
+            <Clock className="mt-0.5 size-5 shrink-0 text-accent" />
+            <div>
+              <p className="font-medium text-accent">Escolha o horário da coleta</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Estamos fora do horário de atendimento agora. Já deixamos o próximo horário livre
+                pré-selecionado abaixo — pode confirmar esse ou escolher outro.
+              </p>
+            </div>
+          </div>
+          <SeletorHorarioColeta
+            dias={dias}
+            carregando={carregandoSlots}
+            diaSelecionado={diaSelecionado}
+            onSelecionarDia={onSelecionarDia}
+            horarioSelecionado={horarioSelecionado}
+            onSelecionarHorario={onSelecionarHorario}
+          />
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Horário de coleta: {formatarDataHora(resumo.horarioColetaIso)}
+        </p>
+      )}
       <p className="text-sm text-muted-foreground">
         Previsão de retorno: {formatarDataHora(resumo.previstoIso)}
       </p>
 
-      {resumo.foraDoHorario ? (
-        <p className="rounded-lg bg-secondary p-3 text-xs text-muted-foreground">
-          Estamos fora do horário de atendimento agora, por isso já agendamos automaticamente para
-          o próximo horário livre mostrado acima.
-        </p>
-      ) : null}
-
-      {perguntando ? (
-        <div className="space-y-2 rounded-lg border border-dashed p-3">
-          <p className="text-sm text-muted-foreground">
-            Confirma o agendamento automático pra esse horário?
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setPerguntando(false)}>
-              Cancelar
-            </Button>
-            <Button
-              className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
-              onClick={onConfirmarForaDoHorario}
-              disabled={recalculando || enviando}
-            >
-              {recalculando || enviando ? <Loader2 className="size-4 animate-spin" /> : null}
-              Sim, confirmar
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={onVoltar}>
-            Voltar
-          </Button>
-          <Button
-            onClick={clicarConfirmar}
-            disabled={enviando}
-            className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
-          >
-            {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
-            Confirmar pedido
-          </Button>
-        </div>
-      )}
+      <div className="flex gap-2">
+        <Button variant="outline" onClick={onVoltar}>
+          Voltar
+        </Button>
+        <Button
+          onClick={resumo.foraDoHorario ? onConfirmarComHorarioEscolhido : onConfirmar}
+          disabled={enviandoOuRecalculando || (resumo.foraDoHorario && !horarioSelecionado)}
+          className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          {enviandoOuRecalculando ? <Loader2 className="size-4 animate-spin" /> : null}
+          Confirmar pedido
+        </Button>
+      </div>
     </Bloco>
   );
 }
