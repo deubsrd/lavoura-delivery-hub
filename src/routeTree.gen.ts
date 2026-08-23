@@ -15,7 +15,6 @@ import { Route as AdminConvitesRouteImport } from './routes/admin-convites'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as SlugPedidoRouteImport } from './routes/$slug.pedido'
-import { Route as SlugPedidoChatRouteImport } from './routes/$slug.pedido-chat'
 import { Route as AuthenticatedAdminPrecosRouteImport } from './routes/_authenticated/admin-precos'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -51,11 +50,6 @@ const RedefinirSenhaRoute = RedefinirSenhaRouteImport.update({
 const SlugPedidoRoute = SlugPedidoRouteImport.update({
   id: '/$slug/pedido',
   path: '/$slug/pedido',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SlugPedidoChatRoute = SlugPedidoChatRouteImport.update({
-  id: '/$slug/pedido-chat',
-  path: '/$slug/pedido-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedAdminPrecosRoute =
@@ -104,7 +98,6 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
-  '/$slug/pedido-chat': typeof SlugPedidoChatRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -119,7 +112,6 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
-  '/$slug/pedido-chat': typeof SlugPedidoChatRoute
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -136,7 +128,6 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/$slug/pedido': typeof SlugPedidoRoute
-  '/$slug/pedido-chat': typeof SlugPedidoChatRoute
   '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -153,7 +144,6 @@ export interface FileRouteTypes {
     | '/auth'
     | '/redefinir-senha'
     | '/$slug/pedido'
-    | '/$slug/pedido-chat'
     | '/admin-precos'
     | '/clientes'
     | '/dashboard'
@@ -168,7 +158,6 @@ export interface FileRouteTypes {
     | '/auth'
     | '/redefinir-senha'
     | '/$slug/pedido'
-    | '/$slug/pedido-chat'
     | '/admin-precos'
     | '/clientes'
     | '/dashboard'
@@ -184,7 +173,6 @@ export interface FileRouteTypes {
     | '/auth'
     | '/redefinir-senha'
     | '/$slug/pedido'
-    | '/$slug/pedido-chat'
     | '/_authenticated/admin-precos'
     | '/_authenticated/clientes'
     | '/_authenticated/dashboard'
@@ -201,7 +189,6 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   SlugPedidoRoute: typeof SlugPedidoRoute
-  SlugPedidoChatRoute: typeof SlugPedidoChatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -246,13 +233,6 @@ declare module '@tanstack/react-router' {
       path: '/$slug/pedido'
       fullPath: '/$slug/pedido'
       preLoaderRoute: typeof SlugPedidoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$slug/pedido-chat': {
-      id: '/$slug/pedido-chat'
-      path: '/$slug/pedido-chat'
-      fullPath: '/$slug/pedido-chat'
-      preLoaderRoute: typeof SlugPedidoChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/admin-precos': {
@@ -340,7 +320,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   RedefinirSenhaRoute: RedefinirSenhaRoute,
   SlugPedidoRoute: SlugPedidoRoute,
-  SlugPedidoChatRoute: SlugPedidoChatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
