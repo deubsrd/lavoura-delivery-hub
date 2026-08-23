@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 
 import { isValidCpf, soDigitosCpf } from "./cpf";
+import { exigirAdmin } from "./unidade.functions";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const enderecoBase = {
@@ -364,7 +365,7 @@ export type ResumoPedido = {
   valorTotal: number;
 };
 
-async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
+export async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
   unidade: Awaited<ReturnType<typeof buscarUnidadeCompletaPorSlug>>;
   horarios: import("./pedido-calculo.server").HorarioDia[];
   ocupados: Set<number>;
@@ -783,6 +784,222 @@ export const criarPedido = createServerFn({ method: "POST" })
       pedido_fora_do_horario: resumo.pedidoForaDoHorario,
       unidade_nome: unidade.nome,
       detalhamento: resumo.detalhamento,
+      valor_total: resumo.valorTotal,
+    };
+  });
+
+export const pedidoManualSchema = z
+  .object({
+    cpf: cpfSchema,
+    nome_completo: z.string().trim().min(3, "Informe o nome completo").max(160).optional(),
+    telefone: z
+      .string()
+      .trim()
+      .refine((v) => v.replace(/\D/g, "").length >= 10, "Telefone inválido")
+      .optional(),
+    ...enderecoBase,
+    quantidade_cestos: z.number().int().min(1).max(50),
+    tipo_servico: z.enum(["busca", "entrega", "busca_e_entrega"]),
+    observacoes: z.string().trim().max(800).optional().nullable(),
+    mesmo_endereco_entrega: z.boolean().optional().nullable(),
+    rua_entrega: z.string().trim().max(160).optional().nullable(),
+    numero_entrega: z.string().trim().max(20).optional().nullable(),
+    bairro_entrega: z.string().trim().max(120).optional().nullable(),
+    complemento_entrega: z.string().trim().max(160).optional().nullable(),
+    referencia_entrega: z.string().trim().max(200).optional().nullable(),
+    // Diferente do fluxo público, aqui o horário é sempre escolhido
+    // explicitamente pela atendente — não existe agendamento automático.
+    horario_coleta: z.string().datetime(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.tipo_servico === "busca_e_entrega") {
+      if (typeof data.mesmo_endereco_entrega !== "boolean") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["mesmo_endereco_entrega"],
+          message: "Responda se o endereço de entrega é o mesmo",
+        });
+        return;
+      }
+      if (data.mesmo_endereco_entrega === false) {
+        for (const campo of ["rua_entrega", "numero_entrega", "bairro_entrega"] as const) {
+          if (!data[campo] || String(data[campo]).trim().length < 1) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [campo],
+              message: "Campo obrigatório para o endereço de entrega",
+            });
+          }
+        }
+      }
+    }
+  });
+
+/**
+ * Registra, pelo painel, um pedido feito por fora do link público (ex.:
+ * telefone) — pra dar controle sobre esses pedidos em vez de deixá-los sem
+ * nenhum registro. Só admin. Reaproveita o mesmo motor de prazo/preço do
+ * fluxo público (montarResumo/calcularPreco), mas sem agendamento
+ * automático nem limite de IP: a atendente sempre escolhe o horário e não
+ * há "fora do horário" a resolver — quem está lançando já está atendendo.
+ * Marca visualizado_em na hora (a atendente que criou já sabe do pedido,
+ * não precisa do alarme sonoro de "pedido novo") e origem: "manual" pra
+ * distinguir dos pedidos feitos pelo cliente no site.
+ */
+export const criarPedidoManual = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => pedidoManualSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const { unidadeId } = await exigirAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: unidadeRow, error: unidadeErr } = await supabaseAdmin
+      .from("unidades")
+      .select("slug")
+      .eq("id", unidadeId)
+      .single();
+    if (unidadeErr || !unidadeRow) throw new Error("Unidade não encontrada.");
+
+    const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } = await montarResumo({
+      slug: unidadeRow.slug,
+      quantidade_cestos: data.quantidade_cestos,
+      tipo_servico: data.tipo_servico,
+      rua: data.rua,
+      numero: data.numero,
+      bairro: data.bairro,
+      complemento: data.complemento,
+      referencia: data.referencia,
+      mesmo_endereco_entrega: data.mesmo_endereco_entrega,
+      rua_entrega: data.rua_entrega,
+      numero_entrega: data.numero_entrega,
+      bairro_entrega: data.bairro_entrega,
+      horario_coleta: data.horario_coleta,
+    });
+
+    const { slotDisponivel } = await import("./pedido-calculo.server");
+    const disponivel = slotDisponivel(
+      unidade,
+      horarios,
+      data.quantidade_cestos,
+      new Date(),
+      ocupados,
+      cestosPorDia,
+      new Date(resumo.horarioColetaIso),
+    );
+    if (!disponivel) {
+      throw new Error(
+        "Esse horário de coleta não está disponível (dia lotado ou horário ocupado). Escolha outro.",
+      );
+    }
+
+    const cpf = soDigitosCpf(data.cpf);
+    let { data: cliente } = await supabaseAdmin
+      .from("clientes")
+      .select("id, nome_completo, telefone")
+      .eq("unidade_id", unidade.id)
+      .eq("cpf", cpf)
+      .maybeSingle();
+
+    if (!cliente) {
+      if (!data.nome_completo || !data.telefone) {
+        throw new Error("Cliente novo: informe nome completo e telefone.");
+      }
+      const { data: novoCliente, error: clienteErr } = await supabaseAdmin
+        .from("clientes")
+        .insert({
+          unidade_id: unidade.id,
+          cpf,
+          nome_completo: data.nome_completo,
+          telefone: data.telefone.replace(/\D/g, ""),
+        })
+        .select("id, nome_completo, telefone")
+        .single();
+      if (clienteErr) throw new Error(clienteErr.message);
+      cliente = novoCliente;
+    }
+
+    const enderecoDiferente =
+      data.tipo_servico === "busca_e_entrega" && data.mesmo_endereco_entrega === false;
+    const agora = new Date();
+
+    const { data: pedido, error } = await supabaseAdmin
+      .from("pedidos_delivery")
+      .insert({
+        unidade_id: unidade.id,
+        cliente_id: cliente.id,
+        nome_completo: cliente.nome_completo,
+        telefone: cliente.telefone,
+        rua: data.rua,
+        numero: data.numero,
+        bairro: data.bairro,
+        complemento: data.complemento || null,
+        referencia: data.referencia || null,
+        mesmo_endereco_entrega:
+          data.tipo_servico === "busca_e_entrega" ? (data.mesmo_endereco_entrega ?? null) : null,
+        rua_entrega: enderecoDiferente ? (data.rua_entrega ?? null) : null,
+        numero_entrega: enderecoDiferente ? (data.numero_entrega ?? null) : null,
+        bairro_entrega: enderecoDiferente ? (data.bairro_entrega ?? null) : null,
+        complemento_entrega: enderecoDiferente ? data.complemento_entrega || null : null,
+        referencia_entrega: enderecoDiferente ? data.referencia_entrega || null : null,
+        quantidade_cestos: data.quantidade_cestos,
+        tipo_servico: data.tipo_servico,
+        observacoes: data.observacoes || null,
+        status: "recebido" as const,
+        data_pedido: agora.toISOString(),
+        data_prevista_retorno: resumo.previstoIso,
+        horario_coleta: resumo.horarioColetaIso,
+        pedido_fora_do_horario: resumo.pedidoForaDoHorario,
+        visualizado_em: agora.toISOString(),
+        origem: "manual",
+        valor_lavagem: precoDetalhado.valorLavagem,
+        valor_secagem: precoDetalhado.valorSecagem,
+        valor_atendente: precoDetalhado.valorAtendente,
+        valor_delivery: precoDetalhado.valorDelivery,
+        valor_desconto: precoDetalhado.valorDesconto,
+        desconto_descricao: precoDetalhado.descontoDescricao,
+        distancia_km: resumo.distanciaKm,
+        valor_total: resumo.valorTotal,
+      })
+      .select("id, data_prevista_retorno, data_pedido, horario_coleta")
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        throw new Error("Esse horário acabou de ser reservado por outro pedido. Escolha outro.");
+      }
+      throw new Error(error.message);
+    }
+
+    await supabaseAdmin
+      .from("clientes")
+      .update({
+        ultima_rua: data.rua,
+        ultimo_numero: data.numero,
+        ultimo_bairro: data.bairro,
+        ultimo_complemento: data.complemento || null,
+        ultima_referencia: data.referencia || null,
+        ultima_rua_entrega: enderecoDiferente ? (data.rua_entrega ?? null) : null,
+        ultimo_numero_entrega: enderecoDiferente ? (data.numero_entrega ?? null) : null,
+        ultimo_bairro_entrega: enderecoDiferente ? (data.bairro_entrega ?? null) : null,
+        ultimo_complemento_entrega: enderecoDiferente ? data.complemento_entrega || null : null,
+        ultima_referencia_entrega: enderecoDiferente ? data.referencia_entrega || null : null,
+        ultimo_mesmo_endereco_entrega:
+          data.tipo_servico === "busca_e_entrega" ? (data.mesmo_endereco_entrega ?? null) : null,
+      })
+      .eq("id", cliente.id);
+
+    const { notificarStatusPedido } = await import("./notificacoes.server");
+    await notificarStatusPedido({
+      pedidoId: pedido.id,
+      telefone: cliente.telefone,
+      nome: cliente.nome_completo,
+      status: "recebido",
+    });
+
+    return {
+      id: pedido.id,
+      data_prevista_retorno: pedido.data_prevista_retorno,
+      horario_coleta: pedido.horario_coleta,
       valor_total: resumo.valorTotal,
     };
   });

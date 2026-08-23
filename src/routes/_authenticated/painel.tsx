@@ -10,9 +10,12 @@ import {
   CalendarClock,
   Copy,
   Eye,
+  Loader2,
   LogOut,
   MessageCircle,
   PackageCheck,
+  Pencil,
+  Plus,
   Search,
   Settings,
   Truck,
@@ -23,7 +26,8 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { garantirVinculoAtendente } from "@/lib/atendentes.functions";
-import { notificarMudancaStatus } from "@/lib/pedidos.functions";
+import { maskCpf } from "@/lib/cpf";
+import { criarPedidoManual, notificarMudancaStatus } from "@/lib/pedidos.functions";
 import { useOrderAlertSound } from "@/hooks/use-order-alert-sound";
 import {
   FLUXO_STATUS,
@@ -35,6 +39,8 @@ import {
   estaAtrasado,
   formatarDataHora,
   formatarMoeda,
+  horarioLocalParaIso,
+  isoParaHorarioLocal,
   maskTelefone,
   montarMensagemDelivery,
   statusAplicavel,
@@ -109,6 +115,7 @@ type Pedido = {
   valor_delivery: number | null;
   valor_desconto: number | null;
   valor_total: number | null;
+  origem: string;
 };
 
 // "Cancelado" não é mais uma coluna do Kanban — pedidos cancelados ficam
@@ -123,16 +130,41 @@ const MOTIVO_CATEGORIA_LABEL: Record<MotivoCategoria, string> = {
   erro: "Erro",
 };
 
+// Campos do pedido que a admin pode corrigir depois de criado (ex.: cliente
+// ligou pedindo pra mudar o horário). Não inclui valores/preço — alterar
+// cestos ou endereço aqui não recalcula o valor cobrado.
+type CamposEditaveisPedido = {
+  nome_completo: string;
+  telefone: string;
+  rua: string;
+  numero: string;
+  bairro: string;
+  complemento: string | null;
+  referencia: string | null;
+  rua_entrega: string | null;
+  numero_entrega: string | null;
+  bairro_entrega: string | null;
+  complemento_entrega: string | null;
+  referencia_entrega: string | null;
+  quantidade_cestos: number;
+  tipo_servico: TipoServico;
+  observacoes: string | null;
+  horario_coleta: string | null;
+};
+
 function PainelPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const notificarStatus = useServerFn(notificarMudancaStatus);
+  const criarManual = useServerFn(criarPedidoManual);
 
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<PedidoStatus | "">("");
   const [filtroTipo, setFiltroTipo] = useState<TipoServico | "">("");
   const [filtroData, setFiltroData] = useState("");
   const [detalheId, setDetalheId] = useState<string | null>(null);
+  const [editando, setEditando] = useState<Pedido | null>(null);
+  const [criandoManual, setCriandoManual] = useState(false);
   const [cancelando, setCancelando] = useState<Pedido | null>(null);
   const [motivoCategoria, setMotivoCategoria] = useState<MotivoCategoria | null>(null);
   const [motivoDetalhe, setMotivoDetalhe] = useState("");
@@ -333,6 +365,43 @@ function PainelPage() {
     if (error) toast.error("Não foi possível marcar como visualizado.");
   }
 
+  /**
+   * Edição direta de informações do pedido pela admin (correção de
+   * horário, endereço, cestos etc. — ex.: cliente ligou pra ajustar algo).
+   * Se o horário de coleta mudar, desloca a previsão de retorno pela mesma
+   * duração do ciclo original, em vez de recalcular do zero (evitaria
+   * geocodificar de novo só pra isso) — mantém a previsão coerente sem
+   * precisar de outro cálculo completo.
+   */
+  async function salvarEdicaoPedido(pedido: Pedido, campos: CamposEditaveisPedido) {
+    const patch: Record<string, unknown> = { ...campos };
+    if (
+      campos.horario_coleta &&
+      pedido.horario_coleta &&
+      campos.horario_coleta !== pedido.horario_coleta
+    ) {
+      if (pedido.data_prevista_retorno) {
+        const duracaoMs =
+          new Date(pedido.data_prevista_retorno).getTime() -
+          new Date(pedido.horario_coleta).getTime();
+        patch["data_prevista_retorno"] = new Date(
+          new Date(campos.horario_coleta).getTime() + duracaoMs,
+        ).toISOString();
+      }
+    }
+    const { error } = await supabase
+      .from("pedidos_delivery")
+      .update(patch as never)
+      .eq("id", pedido.id);
+    if (error) {
+      toast.error("Não foi possível salvar as alterações.");
+      return;
+    }
+    toast.success("Pedido atualizado.");
+    queryClient.invalidateQueries({ queryKey: ["pedidos"] });
+    setEditando(null);
+  }
+
   async function sair() {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -363,6 +432,16 @@ function PainelPage() {
             </h1>
           </div>
           <div className="flex items-center gap-1">
+            {atendente.data?.role === "admin" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCriandoManual(true)}
+                className="text-primary-foreground hover:bg-primary-foreground/10"
+              >
+                <Plus className="size-4" /> Pedido manual
+              </Button>
+            ) : null}
             {atendente.data?.role === "admin" ? (
               <Button
                 variant="ghost"
@@ -536,7 +615,14 @@ function PainelPage() {
           {detalhe ? (
             <>
               <DialogHeader>
-                <DialogTitle className="text-3xl">{detalhe.nome_completo}</DialogTitle>
+                <DialogTitle className="flex items-center gap-2 text-3xl">
+                  {detalhe.nome_completo}
+                  {detalhe.origem === "manual" ? (
+                    <Badge variant="outline" className="text-xs font-normal">
+                      Manual
+                    </Badge>
+                  ) : null}
+                </DialogTitle>
                 <DialogDescription>
                   {TIPO_SERVICO_LABEL[detalhe.tipo_servico]} · {detalhe.quantidade_cestos}{" "}
                   {detalhe.quantidade_cestos === 1 ? "cesto" : "cestos"}
@@ -667,6 +753,12 @@ function PainelPage() {
 
                 <MotoboyForm pedido={detalhe} onSalvar={salvarMotoboy} />
 
+                {atendente.data?.role === "admin" ? (
+                  <Button variant="outline" size="sm" onClick={() => setEditando(detalhe)}>
+                    <Pencil className="size-3.5" /> Editar informações do pedido
+                  </Button>
+                ) : null}
+
                 <div>
                   <p className="mb-2 font-medium">Histórico de status</p>
                   <ol className="space-y-2 border-l pl-4">
@@ -742,6 +834,49 @@ function PainelPage() {
           </Button>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!editando} onOpenChange={(open) => !open && setEditando(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          {editando ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl">Editar pedido</DialogTitle>
+                <DialogDescription>
+                  Corrige informações do pedido de {editando.nome_completo} — não recalcula o valor
+                  cobrado.
+                </DialogDescription>
+              </DialogHeader>
+              <EditarPedidoForm pedido={editando} onSalvar={salvarEdicaoPedido} />
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={criandoManual} onOpenChange={setCriandoManual}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">Pedido manual</DialogTitle>
+            <DialogDescription>
+              Para pedidos feitos por fora do link (telefone, presencial etc.) — fica marcado como
+              “Manual” pra você ter controle separado desses pedidos.
+            </DialogDescription>
+          </DialogHeader>
+          <NovoPedidoManualForm
+            onCriar={async (dados) => {
+              try {
+                await criarManual({ data: dados });
+                toast.success("Pedido manual registrado.");
+                queryClient.invalidateQueries({ queryKey: ["pedidos"] });
+                setCriandoManual(false);
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : "Não foi possível registrar o pedido.",
+                );
+              }
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -804,6 +939,392 @@ function MotoboyForm({
   );
 }
 
+function EditarPedidoForm({
+  pedido,
+  onSalvar,
+}: {
+  pedido: Pedido;
+  onSalvar: (p: Pedido, campos: CamposEditaveisPedido) => Promise<void>;
+}) {
+  const [nome, setNome] = useState(pedido.nome_completo);
+  const [telefone, setTelefone] = useState(pedido.telefone);
+  const [rua, setRua] = useState(pedido.rua);
+  const [numero, setNumero] = useState(pedido.numero);
+  const [bairro, setBairro] = useState(pedido.bairro);
+  const [complemento, setComplemento] = useState(pedido.complemento ?? "");
+  const [referencia, setReferencia] = useState(pedido.referencia ?? "");
+  const [ruaEntrega, setRuaEntrega] = useState(pedido.rua_entrega ?? "");
+  const [numeroEntrega, setNumeroEntrega] = useState(pedido.numero_entrega ?? "");
+  const [bairroEntrega, setBairroEntrega] = useState(pedido.bairro_entrega ?? "");
+  const [cestos, setCestos] = useState(pedido.quantidade_cestos);
+  const [tipoServico, setTipoServico] = useState<TipoServico>(pedido.tipo_servico);
+  const [observacoes, setObservacoes] = useState(pedido.observacoes ?? "");
+  const [horarioLocal, setHorarioLocal] = useState(
+    pedido.horario_coleta ? isoParaHorarioLocal(pedido.horario_coleta) : "",
+  );
+  const [salvando, setSalvando] = useState(false);
+
+  const mostrarEntrega = tipoServico === "busca_e_entrega";
+
+  async function salvar() {
+    setSalvando(true);
+    await onSalvar(pedido, {
+      nome_completo: nome.trim(),
+      telefone: telefone.trim(),
+      rua: rua.trim(),
+      numero: numero.trim(),
+      bairro: bairro.trim(),
+      complemento: complemento.trim() || null,
+      referencia: referencia.trim() || null,
+      rua_entrega: mostrarEntrega ? ruaEntrega.trim() || null : null,
+      numero_entrega: mostrarEntrega ? numeroEntrega.trim() || null : null,
+      bairro_entrega: mostrarEntrega ? bairroEntrega.trim() || null : null,
+      complemento_entrega: pedido.complemento_entrega,
+      referencia_entrega: pedido.referencia_entrega,
+      quantidade_cestos: cestos,
+      tipo_servico: tipoServico,
+      observacoes: observacoes.trim() || null,
+      horario_coleta: horarioLocal ? horarioLocalParaIso(horarioLocal) : null,
+    });
+    setSalvando(false);
+  }
+
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="rounded-lg bg-secondary p-2 text-xs text-muted-foreground">
+        Alterar cestos ou endereço aqui não recalcula o valor cobrado automaticamente.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Nome</Label>
+          <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Telefone</Label>
+          <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Rua</Label>
+        <Input value={rua} onChange={(e) => setRua(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Número</Label>
+          <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Bairro</Label>
+          <Input value={bairro} onChange={(e) => setBairro(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Complemento</Label>
+          <Input value={complemento} onChange={(e) => setComplemento(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Referência</Label>
+          <Input value={referencia} onChange={(e) => setReferencia(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Tipo de serviço</Label>
+        <select
+          value={tipoServico}
+          onChange={(e) => setTipoServico(e.target.value as TipoServico)}
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+        >
+          {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((t) => (
+            <option key={t} value={t}>
+              {TIPO_SERVICO_LABEL[t]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {mostrarEntrega ? (
+        <div className="space-y-2 rounded-lg border border-dashed p-3">
+          <p className="text-xs font-medium text-muted-foreground">
+            Endereço de entrega (se diferente da coleta)
+          </p>
+          <div className="space-y-1">
+            <Label>Rua</Label>
+            <Input value={ruaEntrega} onChange={(e) => setRuaEntrega(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Número</Label>
+              <Input value={numeroEntrega} onChange={(e) => setNumeroEntrega(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Bairro</Label>
+              <Input value={bairroEntrega} onChange={(e) => setBairroEntrega(e.target.value)} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Cestos</Label>
+          <Input
+            type="number"
+            min={1}
+            max={50}
+            value={cestos}
+            onChange={(e) => setCestos(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Horário de coleta</Label>
+          <Input
+            type="datetime-local"
+            value={horarioLocal}
+            onChange={(e) => setHorarioLocal(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Observações</Label>
+        <Textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} />
+      </div>
+
+      <Button
+        onClick={salvar}
+        disabled={salvando}
+        className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+      >
+        {salvando ? <Loader2 className="size-4 animate-spin" /> : null}
+        Salvar alterações
+      </Button>
+    </div>
+  );
+}
+
+type DadosPedidoManual = {
+  cpf: string;
+  nome_completo?: string | undefined;
+  telefone?: string | undefined;
+  rua: string;
+  numero: string;
+  bairro: string;
+  complemento: string | null;
+  referencia: string | null;
+  quantidade_cestos: number;
+  tipo_servico: TipoServico;
+  observacoes: string | null;
+  mesmo_endereco_entrega: boolean | null;
+  rua_entrega: string | null;
+  numero_entrega: string | null;
+  bairro_entrega: string | null;
+  horario_coleta: string;
+};
+
+function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual) => Promise<void> }) {
+  const [cpf, setCpf] = useState("");
+  const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [rua, setRua] = useState("");
+  const [numero, setNumero] = useState("");
+  const [bairro, setBairro] = useState("");
+  const [complemento, setComplemento] = useState("");
+  const [referencia, setReferencia] = useState("");
+  const [cestos, setCestos] = useState(1);
+  const [tipoServico, setTipoServico] = useState<TipoServico>("busca_e_entrega");
+  const [mesmoEndereco, setMesmoEndereco] = useState(true);
+  const [ruaEntrega, setRuaEntrega] = useState("");
+  const [numeroEntrega, setNumeroEntrega] = useState("");
+  const [bairroEntrega, setBairroEntrega] = useState("");
+  const [observacoes, setObservacoes] = useState("");
+  const [horarioLocal, setHorarioLocal] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  const mostrarEntrega = tipoServico === "busca_e_entrega";
+  const precisaEnderecoEntrega = mostrarEntrega && !mesmoEndereco;
+
+  async function enviar() {
+    if (!cpf.trim() || !rua.trim() || !numero.trim() || !bairro.trim() || !horarioLocal) {
+      toast.error("Preencha CPF, endereço e horário de coleta.");
+      return;
+    }
+    setEnviando(true);
+    try {
+      await onCriar({
+        cpf: cpf.trim(),
+        nome_completo: nome.trim() || undefined,
+        telefone: telefone.trim() || undefined,
+        rua: rua.trim(),
+        numero: numero.trim(),
+        bairro: bairro.trim(),
+        complemento: complemento.trim() || null,
+        referencia: referencia.trim() || null,
+        quantidade_cestos: cestos,
+        tipo_servico: tipoServico,
+        observacoes: observacoes.trim() || null,
+        mesmo_endereco_entrega: mostrarEntrega ? mesmoEndereco : null,
+        rua_entrega: precisaEnderecoEntrega ? ruaEntrega.trim() || null : null,
+        numero_entrega: precisaEnderecoEntrega ? numeroEntrega.trim() || null : null,
+        bairro_entrega: precisaEnderecoEntrega ? bairroEntrega.trim() || null : null,
+        horario_coleta: horarioLocalParaIso(horarioLocal),
+      });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="space-y-1">
+        <Label>CPF do cliente</Label>
+        <Input
+          value={cpf}
+          onChange={(e) => setCpf(maskCpf(e.target.value))}
+          placeholder="000.000.000-00"
+        />
+        <p className="text-xs text-muted-foreground">
+          Se o CPF já for de um cliente cadastrado, nome e telefone abaixo são ignorados — usa os
+          dados já salvos.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Nome (cliente novo)</Label>
+          <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Telefone (cliente novo)</Label>
+          <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Rua</Label>
+        <Input value={rua} onChange={(e) => setRua(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Número</Label>
+          <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Bairro</Label>
+          <Input value={bairro} onChange={(e) => setBairro(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Complemento</Label>
+          <Input value={complemento} onChange={(e) => setComplemento(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Referência</Label>
+          <Input value={referencia} onChange={(e) => setReferencia(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Tipo de serviço</Label>
+        <select
+          value={tipoServico}
+          onChange={(e) => setTipoServico(e.target.value as TipoServico)}
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+        >
+          {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((t) => (
+            <option key={t} value={t}>
+              {TIPO_SERVICO_LABEL[t]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {mostrarEntrega ? (
+        <div className="space-y-2">
+          <Label>O endereço de entrega é o mesmo da coleta?</Label>
+          <div className="flex gap-2">
+            {[
+              { label: "Sim", valor: true },
+              { label: "Não", valor: false },
+            ].map((op) => (
+              <button
+                key={op.label}
+                type="button"
+                onClick={() => setMesmoEndereco(op.valor)}
+                className={`flex-1 rounded-lg border p-2 text-sm transition ${
+                  mesmoEndereco === op.valor
+                    ? "border-accent bg-accent/10 font-medium"
+                    : "bg-card hover:bg-secondary"
+                }`}
+              >
+                {op.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {precisaEnderecoEntrega ? (
+        <div className="space-y-2 rounded-lg border border-dashed p-3">
+          <p className="text-xs font-medium text-muted-foreground">Endereço de entrega</p>
+          <div className="space-y-1">
+            <Label>Rua</Label>
+            <Input value={ruaEntrega} onChange={(e) => setRuaEntrega(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Número</Label>
+              <Input value={numeroEntrega} onChange={(e) => setNumeroEntrega(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Bairro</Label>
+              <Input value={bairroEntrega} onChange={(e) => setBairroEntrega(e.target.value)} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Cestos</Label>
+          <Input
+            type="number"
+            min={1}
+            max={50}
+            value={cestos}
+            onChange={(e) => setCestos(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Horário de coleta</Label>
+          <Input
+            type="datetime-local"
+            value={horarioLocal}
+            onChange={(e) => setHorarioLocal(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Observações</Label>
+        <Textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} />
+      </div>
+
+      <Button
+        onClick={enviar}
+        disabled={enviando}
+        className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+      >
+        {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
+        Registrar pedido
+      </Button>
+    </div>
+  );
+}
+
 async function copiarMensagemDelivery(pedido: Pedido) {
   const mensagem = montarMensagemDelivery(pedido);
   try {
@@ -855,7 +1376,14 @@ function Card({
     >
       <button onClick={onAbrir} className="w-full text-left">
         <div className="flex items-start justify-between gap-2">
-          <p className="font-medium">{pedido.nome_completo}</p>
+          <p className="flex items-center gap-1.5 font-medium">
+            {pedido.nome_completo}
+            {pedido.origem === "manual" ? (
+              <Badge variant="outline" className="text-[10px] font-normal">
+                Manual
+              </Badge>
+            ) : null}
+          </p>
           <Badge variant={pedido.tipo_servico === "busca_e_entrega" ? "default" : "secondary"}>
             {pedido.tipo_servico === "entrega" ? (
               <PackageCheck className="size-3" />
