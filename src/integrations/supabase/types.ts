@@ -354,6 +354,7 @@ export type Database = {
           numero: string
           numero_entrega: string | null
           observacoes: string | null
+          origem: string
           pedido_fora_do_horario: boolean
           quantidade_cestos: number
           referencia: string | null
@@ -396,6 +397,7 @@ export type Database = {
           numero: string
           numero_entrega?: string | null
           observacoes?: string | null
+          origem?: string
           pedido_fora_do_horario?: boolean
           quantidade_cestos?: number
           referencia?: string | null
@@ -438,6 +440,7 @@ export type Database = {
           numero?: string
           numero_entrega?: string | null
           observacoes?: string | null
+          origem?: string
           pedido_fora_do_horario?: boolean
           quantidade_cestos?: number
           referencia?: string | null

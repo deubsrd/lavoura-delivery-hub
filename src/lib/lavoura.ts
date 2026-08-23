@@ -227,3 +227,16 @@ export function estaAtrasado(p: {
 export function chaveDiaBoaVista(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: FUSO_UNIDADE });
 }
+
+// Conversão entre o valor de um <input type="datetime-local"> ("YYYY-MM-
+// DDTHH:mm", sem fuso) e um ISO real — usadas nos formulários administrativos
+// (edição de pedido, lançamento manual) onde a atendente digita um horário e
+// ele precisa ser interpretado como hora de Boa Vista, não a do fuso do
+// navegador (ver mesma justificativa em formatarDataHora acima).
+export function horarioLocalParaIso(valorLocal: string): string {
+  return new Date(`${valorLocal}:00-04:00`).toISOString();
+}
+
+export function isoParaHorarioLocal(iso: string): string {
+  return new Date(new Date(iso).getTime() - 4 * 60 * 60 * 1000).toISOString().slice(0, 16);
+}
