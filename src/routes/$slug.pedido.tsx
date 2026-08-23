@@ -1,8 +1,8 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { CheckCircle2, Clock, Loader2, Minus, Plus } from "lucide-react";
+import { CheckCircle2, Loader2, SendHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -30,10 +30,17 @@ import {
   type TipoServico,
 } from "@/lib/lavoura";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Formulário de pedido em formato de conversa — substitui a versão anterior
+ * por etapas (formulário tradicional), mantida no histórico do git pra
+ * reverter se precisar. Mesma lógica de negócio e mesmas server functions de
+ * antes (busca de cliente por CPF, cálculo de prazo/preço, grade de
+ * horários, criação do pedido); só a apresentação muda — uma pergunta de
+ * cada vez, com respostas prontas quando dá pra prever a resposta (sim/não,
+ * tipo de serviço) e texto livre quando não dá.
+ */
 export const Route = createFileRoute("/$slug/pedido")({
   loader: async ({ params }) => {
     const unidade = await getUnidadeBySlug({ data: { slug: params.slug } });
@@ -43,19 +50,15 @@ export const Route = createFileRoute("/$slug/pedido")({
   head: ({ loaderData }) => {
     const nome = loaderData?.unidade.nome ?? "Lavoura";
     const title = `Pedido de busca e entrega — ${nome}`;
-    const description =
-      "Preencha seus dados e solicite a busca e entrega das suas roupas na Lavoura.";
     return {
       meta: [
         { title },
-        { name: "description", content: description },
-        { property: "og:title", content: title },
-        { property: "og:description", content: description },
-        ...(loaderData ? [] : [{ name: "robots", content: "noindex" }]),
+        { name: "description", content: "Faça seu pedido conversando, como num chat." },
+        { name: "robots", content: "noindex" },
       ],
     };
   },
-  component: PedidoPage,
+  component: PedidoChatPage,
   errorComponent: () => (
     <Aviso titulo="Não conseguimos carregar esta unidade" texto="Tente novamente em instantes." />
   ),
@@ -97,84 +100,80 @@ const enderecoVazio: Endereco = {
   referencia: "",
 };
 
-type Etapa = 1 | 2 | 3 | 4 | 5;
-const TOTAL_ETAPAS = 5;
-const TITULO_ETAPA: Record<Etapa, string> = {
-  1: "Seu CPF",
-  2: "Seus dados",
-  3: "Endereço",
-  4: "Sobre o pedido",
-  5: "Resumo",
-};
+// Cada valor é um "turno" da conversa — o passo em que o cliente está
+// respondendo agora. Controla o que aparece na área de resposta (texto
+// livre, botões de resposta rápida, ou um cartão mais rico como a grade de
+// horários e o resumo).
+type Passo =
+  | "cpf"
+  | "confirmar_endereco_anterior"
+  | "nome"
+  | "telefone"
+  | "rua"
+  | "numero"
+  | "bairro"
+  | "complemento"
+  | "referencia"
+  | "cestos"
+  | "horario"
+  | "tipo_servico"
+  | "mesmo_endereco_entrega"
+  | "rua_entrega"
+  | "numero_entrega"
+  | "bairro_entrega"
+  | "observacoes"
+  | "calculando"
+  | "resumo"
+  | "concluido";
 
-function enderecoPorExtenso(e: {
-  rua: string | null;
-  numero: string | null;
-  bairro: string | null;
-}): string {
-  return `${e.rua ?? ""}, ${e.numero ?? ""} — ${e.bairro ?? ""}`;
+type Mensagem = { id: string; autor: "bot" | "usuario"; conteudo: ReactNode };
+
+let contadorMensagem = 0;
+function proximoId(): string {
+  contadorMensagem += 1;
+  return `m${contadorMensagem}`;
 }
 
-function PedidoPage() {
+function PedidoChatPage() {
   const { unidade } = Route.useLoaderData();
 
   const buscarCliente = useServerFn(buscarClientePorCpf);
   const criarClienteFn = useServerFn(criarClienteBasico);
   const calcularResumoFn = useServerFn(calcularResumoPedido);
   const enviarPedidoFn = useServerFn(criarPedido);
-  const obterPrecosBaseFn = useServerFn(obterPrecosBase);
   const obterHorariosPublicoFn = useServerFn(obterHorariosPublico);
   const obterSlotsColetaFn = useServerFn(obterSlotsColeta);
-
-  // Preços base (lavagem/secagem/atendente) buscados uma vez, pra mostrar
-  // uma prévia de valor "ao vivo" na Etapa 4 conforme a quantidade de
-  // cestos muda — sem round-trip ao servidor a cada clique. O valor final
-  // (com delivery e possível preço de horário especial) só sai no resumo
-  // da Etapa 5.
-  const precosBase = useQuery({
-    queryKey: ["precos-base", unidade.slug],
-    queryFn: () => obterPrecosBaseFn({ data: { slug: unidade.slug } }),
-  });
 
   const horariosPublico = useQuery({
     queryKey: ["horarios-publico", unidade.slug],
     queryFn: () => obterHorariosPublicoFn({ data: { slug: unidade.slug } }),
   });
-
-  // Enquanto a unidade está atendendo normalmente, a Etapa 4 já pede pra
-  // escolher o horário de coleta antes de ver o resumo. Fora do horário, a
-  // escolha acontece na própria Etapa 5 (ver EtapaResumo) — o resumo
-  // aparece com uma sugestão automática (o próximo horário livre) e a
-  // grade de horários pra trocar por outro, se preferir. Enquanto ainda
-  // não sabemos se está atendendo (carregando), não exige escolha na
-  // Etapa 4 pra não travar o fluxo à toa.
   const precisaEscolherHorario = horariosPublico.data?.atendendoAgora === true;
 
-  const [resumo, setResumo] = useState<ResumoPedido | null>(null);
-
-  const [etapa, setEtapa] = useState<Etapa>(1);
-  const [pilha, setPilha] = useState<Etapa[]>([]);
-  const [fase1, setFase1] = useState<"cpf" | "confirmar-endereco">("cpf");
+  const [mensagens, setMensagens] = useState<Mensagem[]>([]);
+  const [passo, setPasso] = useState<Passo>("cpf");
+  const iniciado = useRef(false);
 
   const [cpf, setCpf] = useState("");
   const [clienteEncontrado, setClienteEncontrado] = useState<ClienteEncontrado | null>(null);
-
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
-
   const [coleta, setColeta] = useState<Endereco>(enderecoVazio);
   const [entrega, setEntrega] = useState<Endereco>(enderecoVazio);
   const [cestos, setCestos] = useState(1);
+  const [tipo, setTipo] = useState<TipoServico | "">("");
+  const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState<boolean | null>(null);
+  const [observacoes, setObservacoes] = useState("");
+  const [resumo, setResumo] = useState<ResumoPedido | null>(null);
+  const [horarioColeta, setHorarioColeta] = useState<string | null>(null);
+  const [diaColetaSelecionado, setDiaColetaSelecionado] = useState<string | null>(null);
+  const [confirmado, setConfirmado] = useState<{
+    data_prevista_retorno: string | null;
+    horario_coleta: string | null;
+    detalhamento: { rotulo: string; valor: number }[];
+    valor_total: number;
+  } | null>(null);
 
-  // Horário de coleta escolhido pelo cliente (ISO). Some intervalo mínimo
-  // de 30 min entre coletas da unidade e teto de cestos/dia — a grade
-  // abaixo já só oferece horários e dias livres, ver obterSlotsColeta.
-  // refetchInterval mantém a grade atualizada enquanto o cliente está
-  // parado na tela escolhendo (outro cliente pode fechar um horário
-  // nesse meio tempo); sem isso, um slot já ocupado só sumiria da tela
-  // quando o cliente mudasse a quantidade de cestos ou tentasse enviar.
-  // Fora do horário a grade também precisa carregar — é ela que aparece
-  // na Etapa 5 pra escolher o horário no lugar da sugestão automática.
   const precisaGradeDeHorarios = precisaEscolherHorario || resumo?.foraDoHorario === true;
   const slotsColeta = useQuery({
     queryKey: ["slots-coleta", unidade.slug, cestos],
@@ -182,13 +181,7 @@ function PedidoPage() {
     enabled: precisaGradeDeHorarios,
     refetchInterval: precisaGradeDeHorarios ? 20_000 : false,
   });
-  const [horarioColeta, setHorarioColeta] = useState<string | null>(null);
-  const [diaColetaSelecionado, setDiaColetaSelecionado] = useState<string | null>(null);
 
-  // Se o refetch periódico da grade tirar o horário escolhido (outro
-  // cliente fechou esse slot, ou o dia lotou nesse meio tempo), limpa a
-  // seleção em vez de deixar o cliente tentar enviar um horário que já não
-  // existe mais na lista.
   useEffect(() => {
     if (!horarioColeta || !slotsColeta.data) return;
     const aindaDisponivel = slotsColeta.data.some((dia) =>
@@ -197,65 +190,34 @@ function PedidoPage() {
     if (!aindaDisponivel) setHorarioColeta(null);
   }, [slotsColeta.data, horarioColeta]);
 
-  // Fora do horário, pré-seleciona a sugestão automática (o próximo
-  // horário livre) assim que o resumo chega — o cliente já vê um horário
-  // marcado na grade da Etapa 5 e pode simplesmente confirmar, ou trocar
-  // por outro antes de enviar.
   useEffect(() => {
     if (!resumo?.foraDoHorario || horarioColeta) return;
     setHorarioColeta(resumo.horarioColetaIso);
     setDiaColetaSelecionado(chaveDiaBoaVista(resumo.horarioColetaIso));
   }, [resumo, horarioColeta]);
 
-  function ajustarCestos(delta: number) {
-    setCestos((c) => Math.min(50, Math.max(1, c + delta)));
-    // A grade de horários depende da quantidade de cestos (um pedido maior
-    // pode não caber mais no slot escolhido perto do fechamento) — melhor
-    // pedir pra escolher de novo do que manter uma escolha que já pode não
-    // valer mais.
-    setHorarioColeta(null);
+  function push(autor: "bot" | "usuario", conteudo: ReactNode) {
+    setMensagens((m) => [...m, { id: proximoId(), autor, conteudo }]);
   }
 
-  const estimativaCestos = useMemo(() => {
-    if (!precosBase.data) return null;
-    const lavagemSecagem =
-      (precosBase.data.valor_lavagem_por_cesto + precosBase.data.valor_secagem_por_cesto) * cestos;
-    return {
-      lavagemSecagem,
-      subtotal: lavagemSecagem + precosBase.data.valor_atendente_por_pedido,
-      atendente: precosBase.data.valor_atendente_por_pedido,
-    };
-  }, [precosBase.data, cestos]);
-  const [tipo, setTipo] = useState<TipoServico | "">("");
-  const [mesmoEnderecoEntrega, setMesmoEnderecoEntrega] = useState<boolean | null>(null);
-  const [observacoes, setObservacoes] = useState("");
-  const [armadilha, setArmadilha] = useState("");
-  const [erros, setErros] = useState<Record<string, string>>({});
-
-  const [confirmado, setConfirmado] = useState<{
-    data_prevista_retorno: string | null;
-    horario_coleta: string | null;
-    detalhamento: { rotulo: string; valor: number }[];
-    valor_total: number;
-  } | null>(null);
-
-  function ir(novaEtapa: Etapa) {
-    setPilha((p) => [...p, etapa]);
-    setEtapa(novaEtapa);
+  function avancar(proximo: Passo, perguntaBot: ReactNode) {
+    if (perguntaBot) push("bot", perguntaBot);
+    setPasso(proximo);
   }
 
-  function voltar() {
-    if (etapa === 1 && fase1 === "confirmar-endereco") {
-      setFase1("cpf");
-      return;
-    }
-    setPilha((p) => {
-      const copia = [...p];
-      const anterior = copia.pop();
-      if (anterior) setEtapa(anterior);
-      return copia;
-    });
-  }
+  // Primeira pergunta, assim que a tela monta.
+  useEffect(() => {
+    if (iniciado.current) return;
+    iniciado.current = true;
+    push(
+      "bot",
+      <>
+        Oi! Eu sou o assistente de pedidos da <strong>{unidade.nome}</strong>. Pra começar, qual o
+        seu CPF?
+      </>,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const buscaCpfMutation = useMutation({
     mutationFn: (cpfLimpo: string) =>
@@ -263,89 +225,41 @@ function PedidoPage() {
     onSuccess: (cliente) => {
       if (cliente && cliente.ultima_rua) {
         setClienteEncontrado(cliente);
-        setFase1("confirmar-endereco");
+        avancar(
+          "confirmar_endereco_anterior",
+          <>
+            Encontrei seu cadastro, {cliente.nome_completo.split(" ")[0]}! Quer usar o mesmo
+            endereço de sempre — {cliente.ultima_rua}, {cliente.ultimo_numero} (
+            {cliente.ultimo_bairro})?
+          </>,
+        );
       } else if (cliente) {
-        // Cliente já cadastrado, mas sem endereço de pedido anterior.
         setClienteEncontrado(cliente);
         setNome(cliente.nome_completo);
-        setTelefone(maskTelefone(cliente.telefone));
-        ir(3);
+        setTelefone(cliente.telefone);
+        avancar("rua", "Achei seu cadastro, mas ainda não tenho um endereço salvo. Qual a rua?");
       } else {
         setClienteEncontrado(null);
-        ir(2);
+        avancar("nome", "Ainda não te conheço por aqui! Qual seu nome completo?");
       }
     },
-
-    onError: () => toast.error("Não foi possível verificar o CPF. Tente novamente."),
+    onError: () => push("bot", "Não consegui verificar esse CPF agora. Pode tentar de novo?"),
   });
-
-  function confirmarCpf() {
-    if (!isValidCpf(cpf)) {
-      setErros({ cpf: "CPF inválido" });
-      return;
-    }
-    setErros({});
-    buscaCpfMutation.mutate(soDigitosCpf(cpf));
-  }
-
-  function usarEnderecoAnterior(usar: boolean) {
-    if (!clienteEncontrado) return;
-    if (usar) {
-      setColeta({
-        rua: clienteEncontrado.ultima_rua ?? "",
-        numero: clienteEncontrado.ultimo_numero ?? "",
-        bairro: clienteEncontrado.ultimo_bairro ?? "",
-        complemento: clienteEncontrado.ultimo_complemento ?? "",
-        referencia: clienteEncontrado.ultima_referencia ?? "",
-      });
-      setEntrega({
-        rua: clienteEncontrado.ultima_rua_entrega ?? "",
-        numero: clienteEncontrado.ultimo_numero_entrega ?? "",
-        bairro: clienteEncontrado.ultimo_bairro_entrega ?? "",
-        complemento: clienteEncontrado.ultimo_complemento_entrega ?? "",
-        referencia: clienteEncontrado.ultima_referencia_entrega ?? "",
-      });
-      setMesmoEnderecoEntrega(clienteEncontrado.ultimo_mesmo_endereco_entrega);
-      setNome(clienteEncontrado.nome_completo);
-      setTelefone(maskTelefone(clienteEncontrado.telefone));
-      ir(4);
-    } else {
-      setColeta(enderecoVazio);
-      setEntrega(enderecoVazio);
-      setMesmoEnderecoEntrega(null);
-      setNome(clienteEncontrado.nome_completo);
-      setTelefone(maskTelefone(clienteEncontrado.telefone));
-      ir(3);
-    }
-  }
 
   const criarClienteMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (dados: { nome: string; telefone: string }) =>
       criarClienteFn({
-        data: { slug: unidade.slug, cpf: soDigitosCpf(cpf), nome_completo: nome, telefone },
+        data: {
+          slug: unidade.slug,
+          cpf: soDigitosCpf(cpf),
+          nome_completo: dados.nome,
+          telefone: dados.telefone,
+        },
       }),
-    onSuccess: () => ir(3),
-    onError: (error: Error) => toast.error(error.message || "Não foi possível salvar seus dados."),
+    onSuccess: () => avancar("rua", "Show! Agora me diga o endereço de coleta. Qual a rua?"),
+    onError: (error: Error) =>
+      push("bot", error.message || "Não consegui salvar seus dados. Pode tentar de novo?"),
   });
-
-  function confirmarDadosNovos() {
-    const e: Record<string, string> = {};
-    if (nome.trim().length < 3) e["nome"] = "Informe o nome completo";
-    if (telefone.replace(/\D/g, "").length < 10) e["telefone"] = "Telefone inválido";
-    setErros(e);
-    if (Object.keys(e).length > 0) return;
-    criarClienteMutation.mutate();
-  }
-
-  function confirmarEndereco() {
-    const e: Record<string, string> = {};
-    if (!coleta.rua.trim()) e["rua"] = "Obrigatório";
-    if (!coleta.numero.trim()) e["numero"] = "Obrigatório";
-    if (!coleta.bairro.trim()) e["bairro"] = "Obrigatório";
-    setErros(e);
-    if (Object.keys(e).length > 0) return;
-    ir(4);
-  }
 
   const resumoMutation = useMutation({
     mutationFn: () =>
@@ -368,29 +282,13 @@ function PedidoPage() {
       }),
     onSuccess: (novoResumo) => {
       setResumo(novoResumo);
-      if (etapa !== 5) ir(5);
+      setPasso("resumo");
     },
-    onError: () => toast.error("Não foi possível calcular o resumo do pedido."),
+    onError: () => {
+      push("bot", "Não consegui calcular o valor agora. Pode tentar de novo?");
+      setPasso("observacoes");
+    },
   });
-
-  function confirmarDadosPedido() {
-    const e: Record<string, string> = {};
-    if (!tipo) e["tipo"] = "Escolha o tipo de serviço";
-    if (tipo === "busca_e_entrega") {
-      if (mesmoEnderecoEntrega === null) e["mesmoEndereco"] = "Responda esta pergunta";
-      if (mesmoEnderecoEntrega === false) {
-        if (!entrega.rua.trim()) e["rua_entrega"] = "Obrigatório";
-        if (!entrega.numero.trim()) e["numero_entrega"] = "Obrigatório";
-        if (!entrega.bairro.trim()) e["bairro_entrega"] = "Obrigatório";
-      }
-    }
-    if (precisaEscolherHorario && !horarioColeta) {
-      e["horario_coleta"] = "Escolha o horário da coleta";
-    }
-    setErros(e);
-    if (Object.keys(e).length > 0) return;
-    resumoMutation.mutate();
-  }
 
   const enviarMutation = useMutation({
     mutationFn: () =>
@@ -415,7 +313,7 @@ function PedidoPage() {
           complemento_entrega: entrega.complemento || null,
           referencia_entrega: entrega.referencia || null,
           horario_coleta: horarioColeta ?? undefined,
-          armadilha,
+          armadilha: "",
         },
       }),
     onSuccess: (res) => {
@@ -425,9 +323,235 @@ function PedidoPage() {
         detalhamento: res.detalhamento,
         valor_total: res.valor_total,
       });
+      setPasso("concluido");
     },
-    onError: (error: Error) => toast.error(error.message || "Não foi possível enviar o pedido."),
+    onError: (error: Error) =>
+      toast.error(error.message || "Não foi possível enviar o pedido. Tente de novo."),
   });
+
+  // ---- Respostas de texto livre --------------------------------------
+
+  const [entradaTexto, setEntradaTexto] = useState("");
+
+  function responderTexto(valorBruto?: string) {
+    const valor = (valorBruto ?? entradaTexto).trim();
+
+    switch (passo) {
+      case "cpf": {
+        if (!isValidCpf(valor)) {
+          push("bot", "Esse CPF não parece válido — pode conferir e digitar de novo?");
+          return;
+        }
+        push("usuario", maskCpf(valor));
+        setCpf(valor);
+        buscaCpfMutation.mutate(soDigitosCpf(valor));
+        break;
+      }
+      case "nome": {
+        if (valor.length < 3) {
+          push("bot", "Preciso do nome completo, pode escrever de novo?");
+          return;
+        }
+        push("usuario", valor);
+        setNome(valor);
+        avancar("telefone", "E o telefone, com DDD?");
+        break;
+      }
+      case "telefone": {
+        if (valor.replace(/\D/g, "").length < 10) {
+          push("bot", "Esse telefone não parece completo — confere o DDD e os números?");
+          return;
+        }
+        push("usuario", maskTelefone(valor));
+        setTelefone(valor);
+        criarClienteMutation.mutate({ nome, telefone: valor });
+        break;
+      }
+      case "rua": {
+        if (!valor) {
+          push("bot", "Preciso da rua pra continuar 🙂");
+          return;
+        }
+        push("usuario", valor);
+        setColeta((c) => ({ ...c, rua: valor }));
+        avancar("numero", "Número?");
+        break;
+      }
+      case "numero": {
+        if (!valor) {
+          push("bot", "Só o número da casa/apto mesmo, pode mandar?");
+          return;
+        }
+        push("usuario", valor);
+        setColeta((c) => ({ ...c, numero: valor }));
+        avancar("bairro", "Bairro?");
+        break;
+      }
+      case "bairro": {
+        if (!valor) {
+          push("bot", "Qual o bairro?");
+          return;
+        }
+        push("usuario", valor);
+        setColeta((c) => ({ ...c, bairro: valor }));
+        avancar(
+          "complemento",
+          "Tem complemento — apto, bloco, ponto comercial? Se não tiver, pode pular.",
+        );
+        break;
+      }
+      case "complemento": {
+        push("usuario", valor || "Pular");
+        setColeta((c) => ({ ...c, complemento: valor }));
+        avancar("referencia", "Algum ponto de referência? Também pode pular.");
+        break;
+      }
+      case "referencia": {
+        push("usuario", valor || "Pular");
+        setColeta((c) => ({ ...c, referencia: valor }));
+        entrarEmCestos();
+        break;
+      }
+      case "cestos": {
+        const n = Number(valor.replace(/\D/g, ""));
+        if (!n || n < 1 || n > 50) {
+          push("bot", "Me manda só a quantidade de cestos (um número de 1 a 50).");
+          return;
+        }
+        confirmarCestos(n);
+        break;
+      }
+      case "rua_entrega": {
+        if (!valor) {
+          push("bot", "Qual a rua de entrega?");
+          return;
+        }
+        push("usuario", valor);
+        setEntrega((c) => ({ ...c, rua: valor }));
+        avancar("numero_entrega", "Número?");
+        break;
+      }
+      case "numero_entrega": {
+        if (!valor) {
+          push("bot", "Número do endereço de entrega?");
+          return;
+        }
+        push("usuario", valor);
+        setEntrega((c) => ({ ...c, numero: valor }));
+        avancar("bairro_entrega", "Bairro?");
+        break;
+      }
+      case "bairro_entrega": {
+        if (!valor) {
+          push("bot", "Bairro da entrega?");
+          return;
+        }
+        push("usuario", valor);
+        setEntrega((c) => ({ ...c, bairro: valor }));
+        avancar("observacoes", "Quer deixar alguma observação sobre o pedido? Pode pular.");
+        break;
+      }
+      case "observacoes": {
+        push("usuario", valor || "Pular");
+        setObservacoes(valor);
+        push("bot", "Perfeito, só um instante enquanto calculo o valor…");
+        setPasso("calculando");
+        resumoMutation.mutate();
+        break;
+      }
+      default:
+        return;
+    }
+    setEntradaTexto("");
+  }
+
+  function entrarEmCestos() {
+    avancar("cestos", "Quantos cestos de roupa? (1 cesto ≈ 25 peças)");
+  }
+
+  function confirmarCestos(n: number) {
+    push("usuario", `${n} ${n === 1 ? "cesto" : "cestos"}`);
+    setCestos(n);
+    if (precisaEscolherHorario) {
+      avancar("horario", "Qual horário prefere pra coleta?");
+    } else {
+      avancar("tipo_servico", "E qual tipo de serviço você quer?");
+    }
+  }
+
+  function confirmarEnderecoAnterior(usar: boolean) {
+    if (!clienteEncontrado) return;
+    if (usar) {
+      push("usuario", "Sim, usar esse endereço");
+      setColeta({
+        rua: clienteEncontrado.ultima_rua ?? "",
+        numero: clienteEncontrado.ultimo_numero ?? "",
+        bairro: clienteEncontrado.ultimo_bairro ?? "",
+        complemento: clienteEncontrado.ultimo_complemento ?? "",
+        referencia: clienteEncontrado.ultima_referencia ?? "",
+      });
+      setEntrega({
+        rua: clienteEncontrado.ultima_rua_entrega ?? "",
+        numero: clienteEncontrado.ultimo_numero_entrega ?? "",
+        bairro: clienteEncontrado.ultimo_bairro_entrega ?? "",
+        complemento: clienteEncontrado.ultimo_complemento_entrega ?? "",
+        referencia: clienteEncontrado.ultima_referencia_entrega ?? "",
+      });
+      setMesmoEnderecoEntrega(clienteEncontrado.ultimo_mesmo_endereco_entrega);
+      setNome(clienteEncontrado.nome_completo);
+      setTelefone(clienteEncontrado.telefone);
+      entrarEmCestos();
+    } else {
+      push("usuario", "Não, é outro endereço");
+      setColeta(enderecoVazio);
+      setEntrega(enderecoVazio);
+      setMesmoEnderecoEntrega(null);
+      setNome(clienteEncontrado.nome_completo);
+      setTelefone(clienteEncontrado.telefone);
+      avancar("rua", "Sem problemas! Qual a rua?");
+    }
+  }
+
+  function confirmarHorario() {
+    if (!horarioColeta) {
+      push("bot", "Escolhe um horário na grade acima pra continuar 🙂");
+      return;
+    }
+    push("usuario", formatarDataHora(horarioColeta));
+    avancar("tipo_servico", "E qual tipo de serviço você quer?");
+  }
+
+  function confirmarTipoServico(t: TipoServico) {
+    push("usuario", TIPO_SERVICO_LABEL[t]);
+    setTipo(t);
+    if (t === "busca_e_entrega") {
+      avancar("mesmo_endereco_entrega", "O endereço de entrega é o mesmo da coleta?");
+    } else {
+      avancar("observacoes", "Quer deixar alguma observação sobre o pedido? Pode pular.");
+    }
+  }
+
+  function confirmarMesmoEndereco(mesmo: boolean) {
+    push("usuario", mesmo ? "Sim, o mesmo" : "Não, é outro");
+    setMesmoEnderecoEntrega(mesmo);
+    if (mesmo) {
+      avancar("observacoes", "Quer deixar alguma observação sobre o pedido? Pode pular.");
+    } else {
+      avancar("rua_entrega", "Qual a rua de entrega?");
+    }
+  }
+
+  function confirmarPedidoFinal() {
+    push("usuario", "Confirmar pedido");
+    enviarMutation.mutate();
+  }
+
+  // ---- Rolagem automática ----------------------------------------------
+
+  const fimRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    fimRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [mensagens, passo]);
 
   if (confirmado) {
     const tituloEndereco = tipo === "entrega" ? "Endereço de entrega" : "Endereço de coleta";
@@ -441,22 +565,22 @@ function PedidoPage() {
           </p>
 
           <div className="mt-8 space-y-3 rounded-xl border bg-card p-5 text-left text-sm shadow-card">
-            <Resumo rotulo="Nome" valor={nome || clienteEncontrado?.nome_completo || ""} />
-            <Resumo rotulo="Serviço" valor={TIPO_SERVICO_LABEL[tipo as TipoServico]} />
-            <Resumo rotulo="Cestos" valor={String(cestos)} />
-            <Resumo
+            <LinhaResumo rotulo="Nome" valor={nome || clienteEncontrado?.nome_completo || ""} />
+            <LinhaResumo rotulo="Serviço" valor={TIPO_SERVICO_LABEL[tipo as TipoServico]} />
+            <LinhaResumo rotulo="Cestos" valor={String(cestos)} />
+            <LinhaResumo
               rotulo={tituloEndereco}
               valor={`${coleta.rua}, ${coleta.numero} — ${coleta.bairro}`}
             />
-            {observacoes ? <Resumo rotulo="Observações" valor={observacoes} /> : null}
+            {observacoes ? <LinhaResumo rotulo="Observações" valor={observacoes} /> : null}
             {confirmado.horario_coleta ? (
-              <Resumo
+              <LinhaResumo
                 rotulo="Horário de coleta"
                 valor={formatarDataHora(confirmado.horario_coleta)}
               />
             ) : null}
             {confirmado.data_prevista_retorno ? (
-              <Resumo
+              <LinhaResumo
                 rotulo="Previsão de retorno"
                 valor={formatarDataHora(confirmado.data_prevista_retorno)}
               />
@@ -487,554 +611,282 @@ function PedidoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background pb-16">
-      <header className="bg-primary px-5 py-7 text-primary-foreground">
+    <main className="flex min-h-screen flex-col bg-background">
+      <header className="sticky top-0 z-10 bg-primary px-5 py-4 text-primary-foreground">
         <div className="mx-auto max-w-lg">
           <img
             src="/lavoura-logo-branco.svg"
             alt="Lavoura Lavanderia Self Service"
-            className="h-9 w-auto sm:h-11"
+            className="h-8 w-auto"
           />
-          <h1 className="mt-4 text-3xl leading-tight sm:text-4xl">Pedido de busca e entrega</h1>
-          <p className="mt-1 text-sm opacity-90">
-            {unidade.nome} · {unidade.cidade}
-          </p>
-          <p className="mt-4 flex items-start gap-2 rounded-lg bg-accent/15 p-3 text-sm">
-            <Clock className="mt-0.5 size-4 shrink-0 text-accent" />
-            {horariosPublico.data?.textoHoje ?? "Confira nosso horário de atendimento."}
-          </p>
+          <p className="mt-1 text-sm opacity-90">Pedido de busca e entrega — {unidade.nome}</p>
         </div>
       </header>
 
-      <div className="mx-auto mt-6 max-w-lg px-5">
-        <ProgressoEtapas atual={etapa} />
-      </div>
+      <div className="mx-auto w-full max-w-lg flex-1 space-y-3 px-4 py-5">
+        {mensagens.map((m) => (
+          <Bolha key={m.id} autor={m.autor}>
+            {m.conteudo}
+          </Bolha>
+        ))}
 
-      <div className="mx-auto mt-6 max-w-lg space-y-8 px-5">
-        {etapa === 1 && fase1 === "cpf" ? (
-          <Bloco titulo="Informe seu CPF" descricao="Usamos para agilizar pedidos futuros.">
-            <Campo rotulo="CPF" erro={erros["cpf"]}>
-              <Input
-                value={cpf}
-                onChange={(e) => setCpf(maskCpf(e.target.value))}
-                inputMode="numeric"
-                placeholder="000.000.000-00"
+        {passo === "confirmar_endereco_anterior" ? (
+          <RespostasRapidas>
+            <BotaoResposta onClick={() => confirmarEnderecoAnterior(true)}>
+              Sim, usar esse
+            </BotaoResposta>
+            <BotaoResposta onClick={() => confirmarEnderecoAnterior(false)}>
+              Não, outro endereço
+            </BotaoResposta>
+          </RespostasRapidas>
+        ) : null}
+
+        {passo === "cestos" ? (
+          <RespostasRapidas>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <BotaoResposta key={n} onClick={() => confirmarCestos(n)}>
+                {n}
+              </BotaoResposta>
+            ))}
+          </RespostasRapidas>
+        ) : null}
+
+        {passo === "horario" ? (
+          <Bolha autor="bot">
+            <div className="w-full space-y-3">
+              <SeletorHorarioColeta
+                dias={slotsColeta.data ?? []}
+                carregando={slotsColeta.isPending}
+                diaSelecionado={diaColetaSelecionado}
+                onSelecionarDia={setDiaColetaSelecionado}
+                horarioSelecionado={horarioColeta}
+                onSelecionarHorario={setHorarioColeta}
               />
-            </Campo>
-            <Button
-              onClick={confirmarCpf}
-              disabled={buscaCpfMutation.isPending}
-              className="h-12 w-full bg-accent text-accent-foreground hover:bg-accent/90"
-            >
-              {buscaCpfMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-              Continuar
-            </Button>
-          </Bloco>
-        ) : null}
-
-        {etapa === 1 && fase1 === "confirmar-endereco" && clienteEncontrado ? (
-          <Bloco
-            titulo={`Bem-vindo(a) de volta, ${clienteEncontrado.nome_completo.split(" ")[0]}!`}
-          >
-            <p className="text-sm text-muted-foreground">
-              Usar o mesmo endereço de coleta e entrega da última vez?
-            </p>
-            <div className="rounded-lg border bg-card p-3 text-sm">
-              <p className="font-medium">Coleta</p>
-              <p className="text-muted-foreground">
-                {enderecoPorExtenso({
-                  rua: clienteEncontrado.ultima_rua,
-                  numero: clienteEncontrado.ultimo_numero,
-                  bairro: clienteEncontrado.ultimo_bairro,
-                })}
-              </p>
-              {clienteEncontrado.ultimo_mesmo_endereco_entrega === false ? (
-                <>
-                  <p className="mt-2 font-medium">Entrega</p>
-                  <p className="text-muted-foreground">
-                    {enderecoPorExtenso({
-                      rua: clienteEncontrado.ultima_rua_entrega,
-                      numero: clienteEncontrado.ultimo_numero_entrega,
-                      bairro: clienteEncontrado.ultimo_bairro_entrega,
-                    })}
-                  </p>
-                </>
-              ) : null}
-            </div>
-            <div className="flex gap-2">
               <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => usarEnderecoAnterior(false)}
+                size="sm"
+                onClick={confirmarHorario}
+                className="bg-accent text-accent-foreground hover:bg-accent/90"
               >
-                Não, usar outro
-              </Button>
-              <Button
-                className="flex-1 bg-accent text-accent-foreground hover:bg-accent/90"
-                onClick={() => usarEnderecoAnterior(true)}
-              >
-                Sim, usar o mesmo
+                Confirmar horário
               </Button>
             </div>
-          </Bloco>
+          </Bolha>
         ) : null}
 
-        {etapa === 2 ? (
-          <Bloco titulo="Seus dados">
-            <Campo rotulo="Nome completo" erro={erros["nome"]}>
-              <Input
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Maria Silva"
-              />
-            </Campo>
-            <Campo rotulo="Telefone / WhatsApp" erro={erros["telefone"]}>
-              <Input
-                value={telefone}
-                onChange={(e) => setTelefone(maskTelefone(e.target.value))}
-                inputMode="tel"
-                placeholder="(95) 99999-9999"
-              />
-            </Campo>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={voltar}>
-                Voltar
-              </Button>
-              <Button
-                onClick={confirmarDadosNovos}
-                disabled={criarClienteMutation.isPending}
-                className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
-              >
-                {criarClienteMutation.isPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : null}
-                Continuar
-              </Button>
-            </div>
-          </Bloco>
+        {passo === "tipo_servico" ? (
+          <RespostasRapidas>
+            {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((t) => (
+              <BotaoResposta key={t} onClick={() => confirmarTipoServico(t)}>
+                {TIPO_SERVICO_LABEL[t]}
+              </BotaoResposta>
+            ))}
+          </RespostasRapidas>
         ) : null}
 
-        {etapa === 3 ? (
-          <Bloco titulo="Endereço" descricao="Onde o motoboy deve ir.">
-            <BlocoEndereco
-              valor={coleta}
-              onChange={setColeta}
-              erros={{ rua: erros["rua"], numero: erros["numero"], bairro: erros["bairro"] }}
-            />
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={voltar}>
-                Voltar
-              </Button>
-              <Button
-                onClick={confirmarEndereco}
-                className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
-              >
-                Continuar
-              </Button>
-            </div>
-          </Bloco>
+        {passo === "mesmo_endereco_entrega" ? (
+          <RespostasRapidas>
+            <BotaoResposta onClick={() => confirmarMesmoEndereco(true)}>Sim, o mesmo</BotaoResposta>
+            <BotaoResposta onClick={() => confirmarMesmoEndereco(false)}>
+              Não, é outro
+            </BotaoResposta>
+          </RespostasRapidas>
         ) : null}
 
-        {etapa === 4 ? (
-          <Bloco titulo="Sobre o pedido">
-            <Campo rotulo="Quantidade aproximada de cestos">
-              <div className="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => ajustarCestos(-1)}
-                  aria-label="Diminuir cestos"
-                >
-                  <Minus className="size-4" />
-                </Button>
-                <span className="w-10 text-center font-display text-2xl">{cestos}</span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => ajustarCestos(1)}
-                  aria-label="Aumentar cestos"
-                >
-                  <Plus className="size-4" />
-                </Button>
-              </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                1 cesto ≈ 25 peças de roupa, ou 1 edredom grande, ou 2 cobertores leves, ou 4
-                lençóis e fronhas.
-              </p>
-            </Campo>
+        {passo === "calculando" ? (
+          <Bolha autor="bot">
+            <span className="flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin" /> Calculando…
+            </span>
+          </Bolha>
+        ) : null}
 
-            {estimativaCestos ? (
-              <div className="rounded-lg bg-secondary p-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Lavagem + secagem ({cestos} {cestos === 1 ? "cesto" : "cestos"})
-                  </span>
-                  <span className="font-medium">
-                    {formatarMoeda(estimativaCestos.lavagemSecagem)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>+ Serviço da atendente</span>
-                  <span>{formatarMoeda(estimativaCestos.atendente)}</span>
-                </div>
-                <div className="mt-1 flex justify-between border-t pt-1 font-medium">
-                  <span>Subtotal (sem delivery)</span>
-                  <span>{formatarMoeda(estimativaCestos.subtotal)}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  O valor final, com delivery e possível preço de horário especial, aparece no
-                  resumo.
+        {passo === "resumo" && resumo ? (
+          <Bolha autor="bot">
+            <div className="w-full space-y-3">
+              {resumo.deliveryMensagemErro ? (
+                <p className="rounded-lg bg-secondary p-2 text-xs text-muted-foreground">
+                  {resumo.deliveryMensagemErro}
                 </p>
-              </div>
-            ) : null}
-
-            {precisaEscolherHorario ? (
-              <Campo rotulo="Horário da coleta" erro={erros["horario_coleta"]}>
-                <SeletorHorarioColeta
-                  dias={slotsColeta.data ?? []}
-                  carregando={slotsColeta.isPending}
-                  diaSelecionado={diaColetaSelecionado}
-                  onSelecionarDia={setDiaColetaSelecionado}
-                  horarioSelecionado={horarioColeta}
-                  onSelecionarHorario={setHorarioColeta}
-                />
-              </Campo>
-            ) : null}
-
-            <Campo rotulo="Tipo de serviço" erro={erros["tipo"]}>
-              <div className="grid gap-2">
-                {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((opcao) => (
-                  <button
-                    key={opcao}
-                    type="button"
-                    onClick={() => {
-                      setTipo(opcao);
-                      if (opcao !== "busca_e_entrega") setMesmoEnderecoEntrega(null);
-                    }}
-                    className={`rounded-lg border p-3 text-left text-sm transition ${
-                      tipo === opcao
-                        ? "border-accent bg-accent/10 font-medium"
-                        : "bg-card hover:bg-secondary"
-                    }`}
-                  >
-                    <span className="block">{TIPO_SERVICO_LABEL[opcao]}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {opcao === "busca"
-                        ? "O motoboy busca as roupas na sua casa."
-                        : opcao === "entrega"
-                          ? "O motoboy leva as roupas prontas até você."
-                          : "Buscamos as roupas e devolvemos prontas."}
+              ) : null}
+              <div className="space-y-1.5 rounded-xl border bg-card p-3 text-sm">
+                {resumo.detalhamento.map((item) => (
+                  <div key={item.rotulo} className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">{item.rotulo}</span>
+                    <span className={item.valor < 0 ? "text-accent" : ""}>
+                      {formatarMoeda(item.valor)}
                     </span>
-                  </button>
+                  </div>
                 ))}
-              </div>
-            </Campo>
-
-            {tipo === "busca_e_entrega" ? (
-              <Campo
-                rotulo="O endereço de entrega é o mesmo da coleta?"
-                erro={erros["mesmoEndereco"]}
-              >
-                <div className="flex gap-2">
-                  {[
-                    { label: "Sim", valor: true },
-                    { label: "Não", valor: false },
-                  ].map((op) => (
-                    <button
-                      key={op.label}
-                      type="button"
-                      onClick={() => setMesmoEnderecoEntrega(op.valor)}
-                      className={`flex-1 rounded-lg border p-3 text-sm transition ${
-                        mesmoEnderecoEntrega === op.valor
-                          ? "border-accent bg-accent/10 font-medium"
-                          : "bg-card hover:bg-secondary"
-                      }`}
-                    >
-                      {op.label}
-                    </button>
-                  ))}
+                <div className="mt-2 flex justify-between border-t pt-2 font-medium">
+                  <span>Total estimado</span>
+                  <span>{formatarMoeda(resumo.valorTotal)}</span>
                 </div>
-              </Campo>
-            ) : null}
-
-            {tipo === "busca_e_entrega" && mesmoEnderecoEntrega === false ? (
-              <div className="rounded-lg border border-dashed p-4">
-                <p className="mb-3 font-display text-xl">Endereço de entrega</p>
-                <BlocoEndereco
-                  valor={entrega}
-                  onChange={setEntrega}
-                  erros={{
-                    rua: erros["rua_entrega"],
-                    numero: erros["numero_entrega"],
-                    bairro: erros["bairro_entrega"],
-                  }}
-                />
               </div>
-            ) : null}
 
-            <Campo rotulo="Observações (opcional)">
-              <Textarea
-                value={observacoes}
-                onChange={(e) => setObservacoes(e.target.value)}
-                placeholder="Ex.: tem peça delicada, portão azul, ligar antes de subir…"
-                rows={3}
-              />
-            </Campo>
+              {resumo.foraDoHorario ? (
+                <div className="space-y-2 rounded-xl border-2 border-accent bg-accent/10 p-3">
+                  <p className="text-sm font-medium text-accent">
+                    Estamos fora do horário de atendimento agora — escolha o horário de coleta:
+                  </p>
+                  <SeletorHorarioColeta
+                    dias={slotsColeta.data ?? []}
+                    carregando={slotsColeta.isPending}
+                    diaSelecionado={diaColetaSelecionado}
+                    onSelecionarDia={setDiaColetaSelecionado}
+                    horarioSelecionado={horarioColeta}
+                    onSelecionarHorario={setHorarioColeta}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Horário de coleta: {formatarDataHora(resumo.horarioColetaIso)}
+                </p>
+              )}
+              <p className="text-sm text-muted-foreground">
+                Previsão de retorno: {formatarDataHora(resumo.previstoIso)}
+              </p>
 
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={voltar}>
-                Voltar
-              </Button>
               <Button
-                onClick={confirmarDadosPedido}
-                disabled={resumoMutation.isPending}
-                className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
+                onClick={confirmarPedidoFinal}
+                disabled={enviarMutation.isPending || (resumo.foraDoHorario && !horarioColeta)}
+                className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
               >
-                {resumoMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-                Ver resumo
+                {enviarMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+                Confirmar pedido
               </Button>
             </div>
-          </Bloco>
+          </Bolha>
         ) : null}
 
-        {etapa === 5 && resumo ? (
-          <EtapaResumo
-            resumo={resumo}
-            recalculando={resumoMutation.isPending}
-            enviando={enviarMutation.isPending}
-            onVoltar={voltar}
-            onConfirmar={() => enviarMutation.mutate()}
-            onConfirmarComHorarioEscolhido={() =>
-              resumoMutation.mutate(undefined, { onSuccess: () => enviarMutation.mutate() })
-            }
-            dias={slotsColeta.data ?? []}
-            carregandoSlots={slotsColeta.isPending}
-            diaSelecionado={diaColetaSelecionado}
-            onSelecionarDia={setDiaColetaSelecionado}
-            horarioSelecionado={horarioColeta}
-            onSelecionarHorario={setHorarioColeta}
-          />
-        ) : null}
-
-        {/* Campo honeypot: invisível para pessoas, preenchido por robôs. */}
-        <div className="hidden" aria-hidden="true">
-          <label>
-            Não preencha
-            <input
-              tabIndex={-1}
-              autoComplete="off"
-              value={armadilha}
-              onChange={(e) => setArmadilha(e.target.value)}
-            />
-          </label>
-        </div>
+        <div ref={fimRef} />
       </div>
+
+      {ehPassoDeTexto(passo) ? (
+        <div className="sticky bottom-0 border-t bg-card px-4 py-3">
+          <div className="mx-auto flex max-w-lg items-center gap-2">
+            <Input
+              autoFocus
+              value={entradaTexto}
+              onChange={(e) =>
+                setEntradaTexto(
+                  passo === "cpf"
+                    ? maskCpf(e.target.value)
+                    : passo === "telefone"
+                      ? maskTelefone(e.target.value)
+                      : e.target.value,
+                )
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") responderTexto();
+              }}
+              placeholder={placeholderDoPasso(passo)}
+              disabled={buscaCpfMutation.isPending || criarClienteMutation.isPending}
+            />
+            {ehOpcional(passo) ? (
+              <Button variant="outline" onClick={() => responderTexto("")}>
+                Pular
+              </Button>
+            ) : null}
+            <Button
+              size="icon"
+              onClick={() => responderTexto()}
+              disabled={buscaCpfMutation.isPending || criarClienteMutation.isPending}
+              className="shrink-0 bg-accent text-accent-foreground hover:bg-accent/90"
+            >
+              {buscaCpfMutation.isPending || criarClienteMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <SendHorizontal className="size-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
 
-function ProgressoEtapas({ atual }: { atual: Etapa }) {
+function ehPassoDeTexto(passo: Passo): boolean {
+  return [
+    "cpf",
+    "nome",
+    "telefone",
+    "rua",
+    "numero",
+    "bairro",
+    "complemento",
+    "referencia",
+    "cestos",
+    "rua_entrega",
+    "numero_entrega",
+    "bairro_entrega",
+    "observacoes",
+  ].includes(passo);
+}
+
+function ehOpcional(passo: Passo): boolean {
+  return passo === "complemento" || passo === "referencia" || passo === "observacoes";
+}
+
+function placeholderDoPasso(passo: Passo): string {
+  switch (passo) {
+    case "cpf":
+      return "000.000.000-00";
+    case "nome":
+      return "Nome completo";
+    case "telefone":
+      return "(00) 00000-0000";
+    case "cestos":
+      return "Quantidade de cestos";
+    case "complemento":
+      return "Complemento (opcional)";
+    case "referencia":
+      return "Ponto de referência (opcional)";
+    case "observacoes":
+      return "Observações (opcional)";
+    default:
+      return "Digite aqui…";
+  }
+}
+
+function Bolha({ autor, children }: { autor: "bot" | "usuario"; children: ReactNode }) {
+  const doUsuario = autor === "usuario";
   return (
-    <div>
-      <div className="flex gap-1.5">
-        {Array.from({ length: TOTAL_ETAPAS }, (_, i) => (i + 1) as Etapa).map((n) => (
-          <div
-            key={n}
-            className={`h-1.5 flex-1 rounded-full ${n <= atual ? "bg-accent" : "bg-secondary"}`}
-          />
-        ))}
+    <div className={`flex ${doUsuario ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
+          doUsuario
+            ? "rounded-br-sm bg-accent text-accent-foreground"
+            : "rounded-bl-sm bg-secondary text-secondary-foreground"
+        }`}
+      >
+        {children}
       </div>
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        Etapa {atual} de {TOTAL_ETAPAS} · {TITULO_ETAPA[atual]}
-      </p>
     </div>
   );
 }
 
-function EtapaResumo({
-  resumo,
-  recalculando,
-  enviando,
-  onVoltar,
-  onConfirmar,
-  onConfirmarComHorarioEscolhido,
-  dias,
-  carregandoSlots,
-  diaSelecionado,
-  onSelecionarDia,
-  horarioSelecionado,
-  onSelecionarHorario,
-}: {
-  resumo: ResumoPedido;
-  recalculando: boolean;
-  enviando: boolean;
-  onVoltar: () => void;
-  onConfirmar: () => void;
-  onConfirmarComHorarioEscolhido: () => void;
-  dias: DiaColetaPublico[];
-  carregandoSlots: boolean;
-  diaSelecionado: string | null;
-  onSelecionarDia: (data: string) => void;
-  horarioSelecionado: string | null;
-  onSelecionarHorario: (horarioIso: string) => void;
-}) {
-  const enviandoOuRecalculando = enviando || recalculando;
+function RespostasRapidas({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap justify-end gap-2">{children}</div>;
+}
 
+function BotaoResposta({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
-    <Bloco titulo="Resumo do pedido">
-      {resumo.deliveryMensagemErro ? (
-        <p className="rounded-lg bg-secondary p-3 text-xs text-muted-foreground">
-          {resumo.deliveryMensagemErro}
-        </p>
-      ) : null}
-      <div className="space-y-1.5 rounded-xl border bg-card p-4 text-sm">
-        {resumo.detalhamento.map((item) => (
-          <div key={item.rotulo} className="flex justify-between gap-4">
-            <span className="text-muted-foreground">{item.rotulo}</span>
-            <span className={item.valor < 0 ? "text-accent" : ""}>{formatarMoeda(item.valor)}</span>
-          </div>
-        ))}
-        <div className="mt-2 flex justify-between border-t pt-2 font-medium">
-          <span>Total estimado</span>
-          <span>{formatarMoeda(resumo.valorTotal)}</span>
-        </div>
-      </div>
-
-      {resumo.foraDoHorario ? (
-        <div className="space-y-3 rounded-xl border-2 border-accent bg-accent/10 p-4">
-          <div className="flex gap-3">
-            <Clock className="mt-0.5 size-5 shrink-0 text-accent" />
-            <div>
-              <p className="font-medium text-accent">Escolha o horário da coleta</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Estamos fora do horário de atendimento agora. Já deixamos o próximo horário livre
-                pré-selecionado abaixo — pode confirmar esse ou escolher outro.
-              </p>
-            </div>
-          </div>
-          <SeletorHorarioColeta
-            dias={dias}
-            carregando={carregandoSlots}
-            diaSelecionado={diaSelecionado}
-            onSelecionarDia={onSelecionarDia}
-            horarioSelecionado={horarioSelecionado}
-            onSelecionarHorario={onSelecionarHorario}
-          />
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          Horário de coleta: {formatarDataHora(resumo.horarioColetaIso)}
-        </p>
-      )}
-      <p className="text-sm text-muted-foreground">
-        Previsão de retorno: {formatarDataHora(resumo.previstoIso)}
-      </p>
-
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={onVoltar}>
-          Voltar
-        </Button>
-        <Button
-          onClick={resumo.foraDoHorario ? onConfirmarComHorarioEscolhido : onConfirmar}
-          disabled={enviandoOuRecalculando || (resumo.foraDoHorario && !horarioSelecionado)}
-          className="flex-1 h-12 bg-accent text-accent-foreground hover:bg-accent/90"
-        >
-          {enviandoOuRecalculando ? <Loader2 className="size-4 animate-spin" /> : null}
-          Confirmar pedido
-        </Button>
-      </div>
-    </Bloco>
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-accent bg-accent/10 px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/20"
+    >
+      {children}
+    </button>
   );
 }
 
-function Resumo({ rotulo, valor }: { rotulo: string; valor: string }) {
+function LinhaResumo({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
     <div className="flex justify-between gap-4 border-b pb-2 last:border-0 last:pb-0">
       <span className="text-muted-foreground">{rotulo}</span>
       <span className="text-right font-medium">{valor}</span>
-    </div>
-  );
-}
-
-function Bloco({
-  titulo,
-  descricao,
-  children,
-}: {
-  titulo: string;
-  descricao?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-2xl">{titulo}</h2>
-        {descricao ? <p className="text-sm text-muted-foreground">{descricao}</p> : null}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Campo({
-  rotulo,
-  erro,
-  children,
-}: {
-  rotulo: string;
-  erro?: string | undefined;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{rotulo}</Label>
-      {children}
-      {erro ? <p className="text-xs text-destructive">{erro}</p> : null}
-    </div>
-  );
-}
-
-function BlocoEndereco({
-  valor,
-  onChange,
-  erros,
-}: {
-  valor: Endereco;
-  onChange: (v: Endereco) => void;
-  erros: { rua?: string | undefined; numero?: string | undefined; bairro?: string | undefined };
-}) {
-  const set = (campo: keyof Endereco) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange({ ...valor, [campo]: e.target.value });
-
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-2 space-y-1.5">
-          <Label>Rua</Label>
-          <Input value={valor.rua} onChange={set("rua")} />
-          {erros.rua ? <p className="text-xs text-destructive">{erros.rua}</p> : null}
-        </div>
-        <div className="space-y-1.5">
-          <Label>Número</Label>
-          <Input value={valor.numero} onChange={set("numero")} />
-          {erros.numero ? <p className="text-xs text-destructive">{erros.numero}</p> : null}
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label>Bairro</Label>
-        <Input value={valor.bairro} onChange={set("bairro")} />
-        {erros.bairro ? <p className="text-xs text-destructive">{erros.bairro}</p> : null}
-      </div>
-      <div className="space-y-1.5">
-        <Label>Complemento (opcional)</Label>
-        <Input value={valor.complemento} onChange={set("complemento")} />
-      </div>
-      <div className="space-y-1.5">
-        <Label>Ponto de referência (opcional)</Label>
-        <Input value={valor.referencia} onChange={set("referencia")} />
-      </div>
     </div>
   );
 }
@@ -1046,13 +898,6 @@ function rotuloDiaColeta(dia: DiaColetaPublico): string {
   return `${nomeDia}. ${diaDoMes}/${mes}`;
 }
 
-/**
- * Grade de horários de coleta: primeiro escolhe o dia (abas), depois o
- * horário dentro daquele dia (múltiplos de 30 min — ver
- * DURACAO_SLOT_COLETA_MINUTOS em pedido-calculo.server.ts). Só mostra
- * horários já livres — a disponibilidade é recalculada no servidor a cada
- * pedido concluído, então a lista pode mudar entre uma visita e outra.
- */
 function SeletorHorarioColeta({
   dias,
   carregando,
