@@ -407,21 +407,22 @@ async function montarResumo(input: z.infer<typeof resumoInputSchema>): Promise<{
 
   // "Fora do horário" pra fins da regra de negócio é sobre o instante em
   // que o PEDIDO é feito, não sobre o horário de coleta escolhido (que
-  // pode ser um dia futuro mesmo com a unidade aberta agora). Só quando a
-  // unidade está fechada agora — ou o cliente já concordou em agendar numa
-  // rodada anterior — é que o horário de coleta é atribuído automaticamente
-  // em vez de vir da escolha do cliente.
+  // pode ser um dia futuro mesmo com a unidade aberta agora). Um
+  // horario_coleta explícito do cliente sempre vence — mesmo fora do
+  // horário de atendimento a grade de horários fica disponível pro cliente
+  // escolher (ver SeletorHorarioColeta no form público). Só cai no
+  // próximo horário livre automático quando o cliente não escolheu nada
+  // (fallback de segurança contra um client que pule a grade).
   const pedidoForaDoHorario = pedidoForaDoHorarioAgora(unidade, horarios, agora);
-  const precisaAtribuirAutomaticamente =
-    input.usar_proximo_dia_util === true || pedidoForaDoHorario;
 
   let baseDateTime: Date;
-  if (precisaAtribuirAutomaticamente) {
-    baseDateTime = proximoSlotLivre;
-  } else {
-    if (!input.horario_coleta) throw new Error("Escolha o horário da coleta.");
+  if (input.horario_coleta) {
     baseDateTime = new Date(input.horario_coleta);
     if (Number.isNaN(baseDateTime.getTime())) throw new Error("Horário de coleta inválido.");
+  } else if (input.usar_proximo_dia_util === true || pedidoForaDoHorario) {
+    baseDateTime = proximoSlotLivre;
+  } else {
+    throw new Error("Escolha o horário da coleta.");
   }
 
   const prazo = calcularPrazo(unidade, horarios, input.quantidade_cestos, baseDateTime);
@@ -610,12 +611,14 @@ export const criarPedido = createServerFn({ method: "POST" })
       usar_proximo_dia_util: data.usar_proximo_dia_util,
     });
 
-    // Defesa contra client malicioso pulando a etapa de confirmação de
-    // reagendamento: sem usar_proximo_dia_util, um pedido fora do horário
-    // nunca é aceito, mesmo que o client tenha calculado outra coisa.
-    if (!data.usar_proximo_dia_util && resumo.foraDoHorario) {
+    // Defesa contra client malicioso pulando a etapa de escolha de
+    // horário: fora do horário de atendimento, o pedido só é aceito se o
+    // cliente escolheu um horario_coleta explícito na grade (fluxo atual)
+    // ou confirmou o agendamento automático via usar_proximo_dia_util
+    // (fallback legado).
+    if (!data.usar_proximo_dia_util && !data.horario_coleta && resumo.foraDoHorario) {
       throw new Error(
-        "Fora do horário de atendimento para hoje. Volte e escolha agendar para o próximo horário livre.",
+        "Fora do horário de atendimento para hoje. Volte e escolha um horário de coleta.",
       );
     }
 
