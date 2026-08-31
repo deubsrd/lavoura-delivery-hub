@@ -18,6 +18,7 @@ import {
   Plus,
   Search,
   Settings,
+  Store,
   Truck,
   VolumeX,
   X,
@@ -27,7 +28,11 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { garantirVinculoAtendente } from "@/lib/atendentes.functions";
 import { maskCpf } from "@/lib/cpf";
-import { criarPedidoManual, notificarMudancaStatus } from "@/lib/pedidos.functions";
+import {
+  criarPedidoBalcao,
+  criarPedidoManual,
+  notificarMudancaStatus,
+} from "@/lib/pedidos.functions";
 import { useOrderAlertSound } from "@/hooks/use-order-alert-sound";
 import {
   FLUXO_STATUS,
@@ -84,9 +89,9 @@ type Pedido = {
   id: string;
   nome_completo: string;
   telefone: string;
-  rua: string;
-  numero: string;
-  bairro: string;
+  rua: string | null;
+  numero: string | null;
+  bairro: string | null;
   complemento: string | null;
   referencia: string | null;
   mesmo_endereco_entrega: boolean | null;
@@ -157,6 +162,7 @@ function PainelPage() {
   const queryClient = useQueryClient();
   const notificarStatus = useServerFn(notificarMudancaStatus);
   const criarManual = useServerFn(criarPedidoManual);
+  const criarBalcao = useServerFn(criarPedidoBalcao);
 
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<PedidoStatus | "">("");
@@ -165,6 +171,7 @@ function PainelPage() {
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [editando, setEditando] = useState<Pedido | null>(null);
   const [criandoManual, setCriandoManual] = useState(false);
+  const [criandoBalcao, setCriandoBalcao] = useState(false);
   const [cancelando, setCancelando] = useState<Pedido | null>(null);
   const [motivoCategoria, setMotivoCategoria] = useState<MotivoCategoria | null>(null);
   const [motivoDetalhe, setMotivoDetalhe] = useState("");
@@ -432,16 +439,22 @@ function PainelPage() {
             </h1>
           </div>
           <div className="flex items-center gap-1">
-            {atendente.data?.role === "admin" ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setCriandoManual(true)}
-                className="text-primary-foreground hover:bg-primary-foreground/10"
-              >
-                <Plus className="size-4" /> Pedido manual
-              </Button>
-            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCriandoBalcao(true)}
+              className="text-primary-foreground hover:bg-primary-foreground/10"
+            >
+              <Store className="size-4" /> Balcão
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCriandoManual(true)}
+              className="text-primary-foreground hover:bg-primary-foreground/10"
+            >
+              <Plus className="size-4" /> Pedido manual
+            </Button>
             {atendente.data?.role === "admin" ? (
               <Button
                 variant="ghost"
@@ -532,7 +545,7 @@ function PainelPage() {
             className="h-9 rounded-md border bg-background px-2 text-sm"
           >
             <option value="">Todos os serviços</option>
-            {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((t) => (
+            {(["busca", "entrega", "busca_e_entrega", "balcao"] as TipoServico[]).map((t) => (
               <option key={t} value={t}>
                 {TIPO_SERVICO_LABEL[t]}
               </option>
@@ -639,36 +652,43 @@ function PainelPage() {
                   <MessageCircle className="size-4" /> {maskTelefone(detalhe.telefone)}
                 </a>
 
-                <div className="grid gap-3">
-                  <Endereco
-                    titulo={
-                      detalhe.tipo_servico === "entrega"
-                        ? "Endereço de entrega"
-                        : "Endereço de coleta"
-                    }
-                    rua={detalhe.rua}
-                    numero={detalhe.numero}
-                    bairro={detalhe.bairro}
-                    complemento={detalhe.complemento}
-                    referencia={detalhe.referencia}
-                  />
-                  {detalhe.tipo_servico === "busca_e_entrega" &&
-                  detalhe.mesmo_endereco_entrega === false ? (
+                {detalhe.tipo_servico === "balcao" ? (
+                  <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                    Atendimento de balcão — cliente trouxe a roupa pessoalmente e vai buscar depois.
+                    Sem endereço, sem motoboy.
+                  </p>
+                ) : (
+                  <div className="grid gap-3">
                     <Endereco
-                      titulo="Endereço de entrega (diferente)"
-                      destaque
-                      rua={detalhe.rua_entrega ?? ""}
-                      numero={detalhe.numero_entrega ?? ""}
-                      bairro={detalhe.bairro_entrega ?? ""}
-                      complemento={detalhe.complemento_entrega}
-                      referencia={detalhe.referencia_entrega}
+                      titulo={
+                        detalhe.tipo_servico === "entrega"
+                          ? "Endereço de entrega"
+                          : "Endereço de coleta"
+                      }
+                      rua={detalhe.rua ?? ""}
+                      numero={detalhe.numero ?? ""}
+                      bairro={detalhe.bairro ?? ""}
+                      complemento={detalhe.complemento}
+                      referencia={detalhe.referencia}
                     />
-                  ) : detalhe.tipo_servico === "busca_e_entrega" ? (
-                    <p className="text-xs text-muted-foreground">
-                      Entrega no mesmo endereço da coleta.
-                    </p>
-                  ) : null}
-                </div>
+                    {detalhe.tipo_servico === "busca_e_entrega" &&
+                    detalhe.mesmo_endereco_entrega === false ? (
+                      <Endereco
+                        titulo="Endereço de entrega (diferente)"
+                        destaque
+                        rua={detalhe.rua_entrega ?? ""}
+                        numero={detalhe.numero_entrega ?? ""}
+                        bairro={detalhe.bairro_entrega ?? ""}
+                        complemento={detalhe.complemento_entrega}
+                        referencia={detalhe.referencia_entrega}
+                      />
+                    ) : detalhe.tipo_servico === "busca_e_entrega" ? (
+                      <p className="text-xs text-muted-foreground">
+                        Entrega no mesmo endereço da coleta.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
 
                 {detalhe.observacoes ? (
                   <div>
@@ -680,7 +700,13 @@ function PainelPage() {
                 {detalhe.valor_total !== null ? (
                   <div className="space-y-1 rounded-lg border p-3 text-xs">
                     <p className="mb-1.5 font-medium text-sm">Como o valor foi calculado</p>
-                    {detalhe.valor_lavagem !== null ? (
+                    {detalhe.tipo_servico === "balcao" ? (
+                      <p className="mb-1 text-muted-foreground">
+                        Lavagem, secagem e cestos são pagos no totem de pagamento da loja — o valor
+                        aqui é só o serviço da atendente.
+                      </p>
+                    ) : null}
+                    {detalhe.tipo_servico !== "balcao" && detalhe.valor_lavagem !== null ? (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">
                           Lavagem ({detalhe.quantidade_cestos}{" "}
@@ -689,7 +715,7 @@ function PainelPage() {
                         <span>{formatarMoeda(detalhe.valor_lavagem)}</span>
                       </div>
                     ) : null}
-                    {detalhe.valor_secagem !== null ? (
+                    {detalhe.tipo_servico !== "balcao" && detalhe.valor_secagem !== null ? (
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">
                           Secagem ({detalhe.quantidade_cestos}{" "}
@@ -751,7 +777,9 @@ function PainelPage() {
                   ) : null}
                 </div>
 
-                <MotoboyForm pedido={detalhe} onSalvar={salvarMotoboy} />
+                {detalhe.tipo_servico !== "balcao" ? (
+                  <MotoboyForm pedido={detalhe} onSalvar={salvarMotoboy} />
+                ) : null}
 
                 {atendente.data?.role === "admin" ? (
                   <Button variant="outline" size="sm" onClick={() => setEditando(detalhe)}>
@@ -877,6 +905,31 @@ function PainelPage() {
           />
         </DialogContent>
       </Dialog>
+
+      <Dialog open={criandoBalcao} onOpenChange={setCriandoBalcao}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">Atendimento de balcão</DialogTitle>
+            <DialogDescription>
+              Cliente trouxe a roupa pessoalmente e vai buscar depois — sem endereço, sem motoboy.
+            </DialogDescription>
+          </DialogHeader>
+          <NovoPedidoBalcaoForm
+            onCriar={async (dados) => {
+              try {
+                await criarBalcao({ data: dados });
+                toast.success("Pedido de balcão registrado.");
+                queryClient.invalidateQueries({ queryKey: ["pedidos"] });
+                setCriandoBalcao(false);
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : "Não foi possível registrar o pedido.",
+                );
+              }
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -948,9 +1001,9 @@ function EditarPedidoForm({
 }) {
   const [nome, setNome] = useState(pedido.nome_completo);
   const [telefone, setTelefone] = useState(pedido.telefone);
-  const [rua, setRua] = useState(pedido.rua);
-  const [numero, setNumero] = useState(pedido.numero);
-  const [bairro, setBairro] = useState(pedido.bairro);
+  const [rua, setRua] = useState(pedido.rua ?? "");
+  const [numero, setNumero] = useState(pedido.numero ?? "");
+  const [bairro, setBairro] = useState(pedido.bairro ?? "");
   const [complemento, setComplemento] = useState(pedido.complemento ?? "");
   const [referencia, setReferencia] = useState(pedido.referencia ?? "");
   const [ruaEntrega, setRuaEntrega] = useState(pedido.rua_entrega ?? "");
@@ -1038,7 +1091,7 @@ function EditarPedidoForm({
           onChange={(e) => setTipoServico(e.target.value as TipoServico)}
           className="h-9 w-full rounded-md border bg-background px-2 text-sm"
         >
-          {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((t) => (
+          {(["busca", "entrega", "busca_e_entrega", "balcao"] as TipoServico[]).map((t) => (
             <option key={t} value={t}>
               {TIPO_SERVICO_LABEL[t]}
             </option>
@@ -1110,9 +1163,9 @@ type DadosPedidoManual = {
   cpf: string;
   nome_completo?: string | undefined;
   telefone?: string | undefined;
-  rua: string;
-  numero: string;
-  bairro: string;
+  rua: string | null;
+  numero: string | null;
+  bairro: string | null;
   complemento: string | null;
   referencia: string | null;
   quantidade_cestos: number;
@@ -1122,10 +1175,14 @@ type DadosPedidoManual = {
   rua_entrega: string | null;
   numero_entrega: string | null;
   bairro_entrega: string | null;
-  horario_coleta: string;
+  horario_coleta: string | null;
 };
 
-function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual) => Promise<void> }) {
+function NovoPedidoManualForm({
+  onCriar,
+}: {
+  onCriar: (dados: DadosPedidoManual) => Promise<void>;
+}) {
   const [cpf, setCpf] = useState("");
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
@@ -1144,11 +1201,16 @@ function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual)
   const [horarioLocal, setHorarioLocal] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  const ehBalcao = tipoServico === "balcao";
   const mostrarEntrega = tipoServico === "busca_e_entrega";
   const precisaEnderecoEntrega = mostrarEntrega && !mesmoEndereco;
 
   async function enviar() {
-    if (!cpf.trim() || !rua.trim() || !numero.trim() || !bairro.trim() || !horarioLocal) {
+    if (!cpf.trim()) {
+      toast.error("Informe o CPF do cliente.");
+      return;
+    }
+    if (!ehBalcao && (!rua.trim() || !numero.trim() || !bairro.trim() || !horarioLocal)) {
       toast.error("Preencha CPF, endereço e horário de coleta.");
       return;
     }
@@ -1158,11 +1220,11 @@ function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual)
         cpf: cpf.trim(),
         nome_completo: nome.trim() || undefined,
         telefone: telefone.trim() || undefined,
-        rua: rua.trim(),
-        numero: numero.trim(),
-        bairro: bairro.trim(),
-        complemento: complemento.trim() || null,
-        referencia: referencia.trim() || null,
+        rua: ehBalcao ? null : rua.trim(),
+        numero: ehBalcao ? null : numero.trim(),
+        bairro: ehBalcao ? null : bairro.trim(),
+        complemento: ehBalcao ? null : complemento.trim() || null,
+        referencia: ehBalcao ? null : referencia.trim() || null,
         quantidade_cestos: cestos,
         tipo_servico: tipoServico,
         observacoes: observacoes.trim() || null,
@@ -1170,7 +1232,7 @@ function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual)
         rua_entrega: precisaEnderecoEntrega ? ruaEntrega.trim() || null : null,
         numero_entrega: precisaEnderecoEntrega ? numeroEntrega.trim() || null : null,
         bairro_entrega: precisaEnderecoEntrega ? bairroEntrega.trim() || null : null,
-        horario_coleta: horarioLocalParaIso(horarioLocal),
+        horario_coleta: ehBalcao ? null : horarioLocalParaIso(horarioLocal),
       });
     } finally {
       setEnviando(false);
@@ -1203,44 +1265,54 @@ function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual)
       </div>
 
       <div className="space-y-1">
-        <Label>Rua</Label>
-        <Input value={rua} onChange={(e) => setRua(e.target.value)} />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label>Número</Label>
-          <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label>Bairro</Label>
-          <Input value={bairro} onChange={(e) => setBairro(e.target.value)} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label>Complemento</Label>
-          <Input value={complemento} onChange={(e) => setComplemento(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label>Referência</Label>
-          <Input value={referencia} onChange={(e) => setReferencia(e.target.value)} />
-        </div>
-      </div>
-
-      <div className="space-y-1">
         <Label>Tipo de serviço</Label>
         <select
           value={tipoServico}
           onChange={(e) => setTipoServico(e.target.value as TipoServico)}
           className="h-9 w-full rounded-md border bg-background px-2 text-sm"
         >
-          {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((t) => (
+          {(["busca", "entrega", "busca_e_entrega", "balcao"] as TipoServico[]).map((t) => (
             <option key={t} value={t}>
               {TIPO_SERVICO_LABEL[t]}
             </option>
           ))}
         </select>
+        {ehBalcao ? (
+          <p className="text-xs text-muted-foreground">
+            Sem endereço, sem motoboy — só cobra o serviço da atendente. Lavagem, secagem e cestos
+            são pagos no totem de pagamento da loja.
+          </p>
+        ) : null}
       </div>
+
+      {!ehBalcao ? (
+        <>
+          <div className="space-y-1">
+            <Label>Rua</Label>
+            <Input value={rua} onChange={(e) => setRua(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Número</Label>
+              <Input value={numero} onChange={(e) => setNumero(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Bairro</Label>
+              <Input value={bairro} onChange={(e) => setBairro(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Complemento</Label>
+              <Input value={complemento} onChange={(e) => setComplemento(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Referência</Label>
+              <Input value={referencia} onChange={(e) => setReferencia(e.target.value)} />
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {mostrarEntrega ? (
         <div className="space-y-2">
@@ -1298,14 +1370,16 @@ function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual)
             onChange={(e) => setCestos(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
           />
         </div>
-        <div className="space-y-1">
-          <Label>Horário de coleta</Label>
-          <Input
-            type="datetime-local"
-            value={horarioLocal}
-            onChange={(e) => setHorarioLocal(e.target.value)}
-          />
-        </div>
+        {!ehBalcao ? (
+          <div className="space-y-1">
+            <Label>Horário de coleta</Label>
+            <Input
+              type="datetime-local"
+              value={horarioLocal}
+              onChange={(e) => setHorarioLocal(e.target.value)}
+            />
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-1">
@@ -1320,6 +1394,98 @@ function NovoPedidoManualForm({ onCriar }: { onCriar: (dados: DadosPedidoManual)
       >
         {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
         Registrar pedido
+      </Button>
+    </div>
+  );
+}
+
+type DadosPedidoBalcao = {
+  cpf: string;
+  nome_completo?: string | undefined;
+  telefone?: string | undefined;
+  quantidade_cestos: number;
+  observacoes: string | null;
+};
+
+function NovoPedidoBalcaoForm({
+  onCriar,
+}: {
+  onCriar: (dados: DadosPedidoBalcao) => Promise<void>;
+}) {
+  const [cpf, setCpf] = useState("");
+  const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [cestos, setCestos] = useState(1);
+  const [observacoes, setObservacoes] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  async function enviar() {
+    if (!cpf.trim()) {
+      toast.error("Informe o CPF do cliente.");
+      return;
+    }
+    setEnviando(true);
+    try {
+      await onCriar({
+        cpf: cpf.trim(),
+        nome_completo: nome.trim() || undefined,
+        telefone: telefone.trim() || undefined,
+        quantidade_cestos: cestos,
+        observacoes: observacoes.trim() || null,
+      });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="space-y-1">
+        <Label>CPF do cliente</Label>
+        <Input
+          value={cpf}
+          onChange={(e) => setCpf(maskCpf(e.target.value))}
+          placeholder="000.000.000-00"
+        />
+        <p className="text-xs text-muted-foreground">
+          Se o CPF já for de um cliente cadastrado, nome e telefone abaixo são ignorados — usa os
+          dados já salvos.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label>Nome (cliente novo)</Label>
+          <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label>Telefone (cliente novo)</Label>
+          <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Cestos</Label>
+        <Input
+          type="number"
+          min={1}
+          max={50}
+          value={cestos}
+          onChange={(e) => setCestos(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label>Observações</Label>
+        <Textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} />
+      </div>
+
+      <Button
+        onClick={enviar}
+        disabled={enviando}
+        className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+      >
+        {enviando ? <Loader2 className="size-4 animate-spin" /> : null}
+        Registrar pedido de balcão
       </Button>
     </div>
   );
@@ -1385,7 +1551,9 @@ function Card({
             ) : null}
           </p>
           <Badge variant={pedido.tipo_servico === "busca_e_entrega" ? "default" : "secondary"}>
-            {pedido.tipo_servico === "entrega" ? (
+            {pedido.tipo_servico === "balcao" ? (
+              <Store className="size-3" />
+            ) : pedido.tipo_servico === "entrega" ? (
               <PackageCheck className="size-3" />
             ) : (
               <Truck className="size-3" />
@@ -1425,13 +1593,15 @@ function Card({
         >
           <MessageCircle className="size-3" /> WhatsApp
         </a>
-        <button
-          type="button"
-          onClick={() => copiarMensagemDelivery(pedido)}
-          className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium"
-        >
-          <Copy className="size-3" /> Copiar mensagem de delivery
-        </button>
+        {pedido.tipo_servico !== "balcao" ? (
+          <button
+            type="button"
+            onClick={() => copiarMensagemDelivery(pedido)}
+            className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium"
+          >
+            <Copy className="size-3" /> Copiar mensagem de delivery
+          </button>
+        ) : null}
         {precisaAlarme ? (
           <button
             type="button"

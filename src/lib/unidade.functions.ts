@@ -17,6 +17,19 @@ export async function exigirAdmin(context: ContextoAuth): Promise<{ unidadeId: s
   return { unidadeId: data.unidade_id };
 }
 
+/** Confere que o usuário logado é atendente (qualquer role) da própria unidade; devolve o unidade_id. */
+export async function exigirAtendente(context: ContextoAuth): Promise<{ unidadeId: string }> {
+  const { data, error } = await context.supabase
+    .from("atendentes")
+    .select("unidade_id")
+    .eq("id", context.userId)
+    .maybeSingle();
+  if (error || !data) {
+    throw new Error("Acesso restrito a atendentes da unidade.");
+  }
+  return { unidadeId: data.unidade_id };
+}
+
 export type EnderecoUnidade = {
   endereco_completo: string | null;
   latitude: number | null;

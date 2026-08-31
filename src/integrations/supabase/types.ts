@@ -332,7 +332,7 @@ export type Database = {
       }
       pedidos_delivery: {
         Row: {
-          bairro: string
+          bairro: string | null
           bairro_entrega: string | null
           cancelamento_teste: boolean
           cliente_id: string | null
@@ -351,7 +351,7 @@ export type Database = {
           motivo_cancelamento: string | null
           motoboy_nome: string | null
           nome_completo: string
-          numero: string
+          numero: string | null
           numero_entrega: string | null
           observacoes: string | null
           origem: string
@@ -359,7 +359,7 @@ export type Database = {
           quantidade_cestos: number
           referencia: string | null
           referencia_entrega: string | null
-          rua: string
+          rua: string | null
           rua_entrega: string | null
           status: Database["public"]["Enums"]["pedido_status"]
           telefone: string
@@ -375,7 +375,7 @@ export type Database = {
           visualizado_em: string | null
         }
         Insert: {
-          bairro: string
+          bairro?: string | null
           bairro_entrega?: string | null
           cancelamento_teste?: boolean
           cliente_id?: string | null
@@ -394,7 +394,7 @@ export type Database = {
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
           nome_completo: string
-          numero: string
+          numero?: string | null
           numero_entrega?: string | null
           observacoes?: string | null
           origem?: string
@@ -402,7 +402,7 @@ export type Database = {
           quantidade_cestos?: number
           referencia?: string | null
           referencia_entrega?: string | null
-          rua: string
+          rua?: string | null
           rua_entrega?: string | null
           status?: Database["public"]["Enums"]["pedido_status"]
           telefone: string
@@ -418,7 +418,7 @@ export type Database = {
           visualizado_em?: string | null
         }
         Update: {
-          bairro?: string
+          bairro?: string | null
           bairro_entrega?: string | null
           cancelamento_teste?: boolean
           cliente_id?: string | null
@@ -437,7 +437,7 @@ export type Database = {
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
           nome_completo?: string
-          numero?: string
+          numero?: string | null
           numero_entrega?: string | null
           observacoes?: string | null
           origem?: string
@@ -445,7 +445,7 @@ export type Database = {
           quantidade_cestos?: number
           referencia?: string | null
           referencia_entrega?: string | null
-          rua?: string
+          rua?: string | null
           rua_entrega?: string | null
           status?: Database["public"]["Enums"]["pedido_status"]
           telefone?: string
@@ -701,7 +701,7 @@ export type Database = {
         | "entregue"
         | "cancelado"
       tipo_desconto: "percentual" | "valor_fixo"
-      tipo_servico: "busca" | "entrega" | "busca_e_entrega"
+      tipo_servico: "busca" | "entrega" | "busca_e_entrega" | "balcao"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -847,7 +847,7 @@ export const Constants = {
         "cancelado",
       ],
       tipo_desconto: ["percentual", "valor_fixo"],
-      tipo_servico: ["busca", "entrega", "busca_e_entrega"],
+      tipo_servico: ["busca", "entrega", "busca_e_entrega", "balcao"],
     },
   },
 } as const

@@ -1,4 +1,4 @@
-export type TipoServico = "busca" | "entrega" | "busca_e_entrega";
+export type TipoServico = "busca" | "entrega" | "busca_e_entrega" | "balcao";
 export type PedidoStatus =
   | "recebido"
   | "motoboy_busca"
@@ -12,6 +12,7 @@ export const TIPO_SERVICO_LABEL: Record<TipoServico, string> = {
   busca: "Só busca",
   entrega: "Só entrega",
   busca_e_entrega: "Busca e entrega",
+  balcao: "Balcão (sem delivery)",
 };
 
 export const STATUS_LABEL: Record<PedidoStatus, string> = {
@@ -37,6 +38,10 @@ export const FLUXO_STATUS: PedidoStatus[] = [
 export function statusAplicavel(status: PedidoStatus, tipo: TipoServico): boolean {
   if (status === "motoboy_busca" && tipo === "entrega") return false;
   if (status === "motoboy_entrega" && tipo === "busca") return false;
+  // Balcão nunca tem motoboy — cliente traz e busca pessoalmente.
+  if ((status === "motoboy_busca" || status === "motoboy_entrega") && tipo === "balcao") {
+    return false;
+  }
   return true;
 }
 
@@ -63,14 +68,19 @@ export function whatsappLink(telefone: string): string {
   return `https://wa.me/${comPais}`;
 }
 
-export function enderecoResumido(p: { rua: string; numero: string; bairro: string }): string {
+export function enderecoResumido(p: {
+  rua: string | null;
+  numero: string | null;
+  bairro: string | null;
+}): string {
+  if (!p.rua || !p.numero || !p.bairro) return "Atendimento no balcão";
   return `${p.rua}, ${p.numero} — ${p.bairro}`;
 }
 
 function enderecoCompleto(p: {
-  rua: string;
-  numero: string;
-  bairro: string;
+  rua: string | null;
+  numero: string | null;
+  bairro: string | null;
   complemento?: string | null;
   referencia?: string | null;
 }): string {
@@ -94,9 +104,9 @@ export function montarMensagemDelivery(pedido: {
   quantidade_cestos: number;
   horario_coleta: string | null;
   data_prevista_retorno: string | null;
-  rua: string;
-  numero: string;
-  bairro: string;
+  rua: string | null;
+  numero: string | null;
+  bairro: string | null;
   complemento: string | null;
   referencia: string | null;
   mesmo_endereco_entrega: boolean | null;
