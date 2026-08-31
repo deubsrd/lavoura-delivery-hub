@@ -1183,11 +1183,11 @@ export const pedidoBalcaoSchema = z.object({
 });
 
 /**
- * Registra, pelo painel, um pedido de balcão. Aberto a qualquer atendente
- * (não só admin) — diferente do pedido manual (telefone/delivery), que
- * continua admin-only, embora "Balcão" também esteja disponível como opção
- * de tipo_servico ali (ver criarPedidoManual). Toda a lógica de fato mora
- * em criarPedidoBalcaoInterno, compartilhada pelos dois pontos de entrada.
+ * Registra, pelo painel, um pedido de balcão. Aberto a qualquer atendente,
+ * assim como o pedido manual em geral (ver criarPedidoManual, onde
+ * "Balcão" também está disponível como opção de tipo_servico). Toda a
+ * lógica de fato mora em criarPedidoBalcaoInterno, compartilhada pelos
+ * dois pontos de entrada.
  */
 export const criarPedidoBalcao = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
