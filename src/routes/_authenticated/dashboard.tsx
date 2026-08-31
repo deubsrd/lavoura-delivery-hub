@@ -243,6 +243,7 @@ function SecaoDashboard() {
       busca: 0,
       entrega: 0,
       busca_e_entrega: 0,
+      balcao: 0,
     };
     for (const p of pedidosEsteMes) porTipoEsteMes[p.tipo_servico] += 1;
 
@@ -325,7 +326,7 @@ function SecaoDashboard() {
               rotulo="Cancelamento (mês)"
               valor={`${metricas.taxaCancelamentoEsteMes.toFixed(1)}%`}
             />
-            {(["busca", "entrega", "busca_e_entrega"] as TipoServico[]).map((tipo) => (
+            {(["busca", "entrega", "busca_e_entrega", "balcao"] as TipoServico[]).map((tipo) => (
               <StatTileSimples
                 key={tipo}
                 rotulo={TIPO_SERVICO_LABEL[tipo]}

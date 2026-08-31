@@ -3,7 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 
 import { isValidCpf, soDigitosCpf } from "./cpf";
-import { exigirAdmin } from "./unidade.functions";
+import { exigirAtendente } from "./unidade.functions";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const enderecoBase = {
@@ -788,6 +788,117 @@ export const criarPedido = createServerFn({ method: "POST" })
     };
   });
 
+/**
+ * Cria de fato um pedido de balcão (cliente traz a roupa pessoalmente e
+ * busca depois) — usado tanto pelo fluxo dedicado (criarPedidoBalcao, aberto
+ * a qualquer atendente) quanto pela opção "Balcão" dentro do Pedido Manual
+ * (admin). Sem endereço, sem motoboy, sem horário de coleta agendado (a
+ * coleta é "agora"). Preço: SÓ o serviço da atendente — lavagem, secagem e
+ * a quantidade de cestos não entram no valor do pedido porque são pagos no
+ * totem de pagamento da loja, fora deste sistema.
+ */
+async function criarPedidoBalcaoInterno(params: {
+  unidadeId: string;
+  cpf: string;
+  nomeCompleto?: string | undefined;
+  telefone?: string | undefined;
+  quantidadeCestos: number;
+  observacoes?: string | null | undefined;
+}): Promise<{ id: string; data_prevista_retorno: string | null; valor_total: number }> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: unidade, error: unidadeErr } = await supabaseAdmin
+    .from("unidades")
+    .select("id, hora_limite_pedido, quantidade_maquinas")
+    .eq("id", params.unidadeId)
+    .single();
+  if (unidadeErr || !unidade) throw new Error("Unidade não encontrada.");
+
+  const [{ data: horarios }, { data: precos }] = await Promise.all([
+    supabaseAdmin
+      .from("horarios_unidade")
+      .select("dia_semana, ativo, hora_abertura, hora_fechamento")
+      .eq("unidade_id", unidade.id),
+    supabaseAdmin
+      .from("configuracao_precos")
+      .select("valor_atendente_por_pedido")
+      .eq("unidade_id", unidade.id)
+      .maybeSingle(),
+  ]);
+  if (!precos) throw new Error("Preços não configurados para esta unidade. Contate o suporte.");
+
+  const { calcularPrazo } = await import("./pedido-calculo.server");
+  const agora = new Date();
+  const prazo = calcularPrazo(unidade, horarios ?? [], params.quantidadeCestos, agora);
+
+  const cpf = soDigitosCpf(params.cpf);
+  let { data: cliente } = await supabaseAdmin
+    .from("clientes")
+    .select("id, nome_completo, telefone")
+    .eq("unidade_id", unidade.id)
+    .eq("cpf", cpf)
+    .maybeSingle();
+
+  if (!cliente) {
+    if (!params.nomeCompleto || !params.telefone) {
+      throw new Error("Cliente novo: informe nome completo e telefone.");
+    }
+    const { data: novoCliente, error: clienteErr } = await supabaseAdmin
+      .from("clientes")
+      .insert({
+        unidade_id: unidade.id,
+        cpf,
+        nome_completo: params.nomeCompleto,
+        telefone: params.telefone.replace(/\D/g, ""),
+      })
+      .select("id, nome_completo, telefone")
+      .single();
+    if (clienteErr) throw new Error(clienteErr.message);
+    cliente = novoCliente;
+  }
+
+  const valorAtendente = precos.valor_atendente_por_pedido;
+
+  const { data: pedido, error } = await supabaseAdmin
+    .from("pedidos_delivery")
+    .insert({
+      unidade_id: unidade.id,
+      cliente_id: cliente.id,
+      nome_completo: cliente.nome_completo,
+      telefone: cliente.telefone,
+      rua: null,
+      numero: null,
+      bairro: null,
+      quantidade_cestos: params.quantidadeCestos,
+      tipo_servico: "balcao",
+      observacoes: params.observacoes || null,
+      status: "recebido" as const,
+      data_pedido: agora.toISOString(),
+      data_prevista_retorno: prazo.previsto.toISOString(),
+      horario_coleta: null,
+      pedido_fora_do_horario: false,
+      visualizado_em: agora.toISOString(),
+      origem: "manual",
+      valor_lavagem: 0,
+      valor_secagem: 0,
+      valor_atendente: valorAtendente,
+      valor_delivery: null,
+      valor_desconto: 0,
+      desconto_descricao: null,
+      distancia_km: null,
+      valor_total: valorAtendente,
+    })
+    .select("id, data_prevista_retorno, data_pedido")
+    .single();
+  if (error) throw new Error(error.message);
+
+  return {
+    id: pedido.id,
+    data_prevista_retorno: pedido.data_prevista_retorno,
+    valor_total: valorAtendente,
+  };
+}
+
 export const pedidoManualSchema = z
   .object({
     cpf: cpfSchema,
@@ -797,9 +908,16 @@ export const pedidoManualSchema = z
       .trim()
       .refine((v) => v.replace(/\D/g, "").length >= 10, "Telefone inválido")
       .optional(),
-    ...enderecoBase,
+    // Diferente do fluxo público (enderecoBase), aqui rua/numero/bairro só
+    // são obrigatórios quando o tipo NÃO é "balcao" — validado abaixo no
+    // superRefine, já que dependem do tipo_servico escolhido.
+    rua: z.string().trim().max(160).optional(),
+    numero: z.string().trim().max(20).optional(),
+    bairro: z.string().trim().max(120).optional(),
+    complemento: z.string().trim().max(160).optional().nullable(),
+    referencia: z.string().trim().max(200).optional().nullable(),
     quantidade_cestos: z.number().int().min(1).max(50),
-    tipo_servico: z.enum(["busca", "entrega", "busca_e_entrega"]),
+    tipo_servico: z.enum(["busca", "entrega", "busca_e_entrega", "balcao"]),
     observacoes: z.string().trim().max(800).optional().nullable(),
     mesmo_endereco_entrega: z.boolean().optional().nullable(),
     rua_entrega: z.string().trim().max(160).optional().nullable(),
@@ -809,9 +927,31 @@ export const pedidoManualSchema = z
     referencia_entrega: z.string().trim().max(200).optional().nullable(),
     // Diferente do fluxo público, aqui o horário é sempre escolhido
     // explicitamente pela atendente — não existe agendamento automático.
-    horario_coleta: z.string().datetime(),
+    // Balcão não tem horário de coleta: a coleta é "agora" (cliente já
+    // está na loja).
+    horario_coleta: z.string().datetime().optional(),
   })
   .superRefine((data, ctx) => {
+    // Balcão: sem endereço, sem horário de coleta — nada mais a validar.
+    if (data.tipo_servico === "balcao") return;
+
+    if (!data.rua || data.rua.trim().length < 2) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rua"], message: "Informe a rua" });
+    }
+    if (!data.numero || data.numero.trim().length < 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["numero"], message: "Informe o número" });
+    }
+    if (!data.bairro || data.bairro.trim().length < 2) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bairro"], message: "Informe o bairro" });
+    }
+    if (!data.horario_coleta) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["horario_coleta"],
+        message: "Escolha o horário da coleta",
+      });
+    }
+
     if (data.tipo_servico === "busca_e_entrega") {
       if (typeof data.mesmo_endereco_entrega !== "boolean") {
         ctx.addIssue({
@@ -837,20 +977,38 @@ export const pedidoManualSchema = z
 
 /**
  * Registra, pelo painel, um pedido feito por fora do link público (ex.:
- * telefone) — pra dar controle sobre esses pedidos em vez de deixá-los sem
- * nenhum registro. Só admin. Reaproveita o mesmo motor de prazo/preço do
- * fluxo público (montarResumo/calcularPreco), mas sem agendamento
- * automático nem limite de IP: a atendente sempre escolhe o horário e não
- * há "fora do horário" a resolver — quem está lançando já está atendendo.
- * Marca visualizado_em na hora (a atendente que criou já sabe do pedido,
- * não precisa do alarme sonoro de "pedido novo") e origem: "manual" pra
+ * telefone, balcão) — pra dar controle sobre esses pedidos em vez de
+ * deixá-los sem nenhum registro. Aberto a qualquer atendente da unidade
+ * (não só admin) — é uma tarefa operacional do dia a dia, não uma ação
+ * administrativa. Reaproveita o mesmo motor de prazo/preço do fluxo
+ * público (montarResumo/calcularPreco), mas sem agendamento automático nem
+ * limite de IP: a atendente sempre escolhe o horário e não há "fora do
+ * horário" a resolver — quem está lançando já está atendendo. Marca
+ * visualizado_em na hora (a atendente que criou já sabe do pedido, não
+ * precisa do alarme sonoro de "pedido novo") e origem: "manual" pra
  * distinguir dos pedidos feitos pelo cliente no site.
  */
 export const criarPedidoManual = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => pedidoManualSchema.parse(data))
   .handler(async ({ data, context }) => {
-    const { unidadeId } = await exigirAdmin(context);
+    const { unidadeId } = await exigirAtendente(context);
+
+    // Balcão é um pedido de outra natureza (sem endereço, sem motoboy, sem
+    // horário de coleta agendado) — não passa pelo motor de prazo/preço de
+    // delivery abaixo, cai direto no mesmo caminho do fluxo dedicado
+    // (criarPedidoBalcao).
+    if (data.tipo_servico === "balcao") {
+      return criarPedidoBalcaoInterno({
+        unidadeId,
+        cpf: data.cpf,
+        nomeCompleto: data.nome_completo,
+        telefone: data.telefone,
+        quantidadeCestos: data.quantidade_cestos,
+        observacoes: data.observacoes,
+      });
+    }
+
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: unidadeRow, error: unidadeErr } = await supabaseAdmin
@@ -859,6 +1017,14 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
       .eq("id", unidadeId)
       .single();
     if (unidadeErr || !unidadeRow) throw new Error("Unidade não encontrada.");
+
+    // A validação de rua/numero/bairro/horario_coleta obrigatórios pra
+    // qualquer tipo_servico != "balcao" já rodou no superRefine do schema
+    // (pedidoManualSchema) — essas checagens aqui só existem pra estreitar
+    // o tipo de `string | undefined` pra `string` sem usar "as".
+    if (!data.rua || !data.numero || !data.bairro || !data.horario_coleta) {
+      throw new Error("Endereço e horário de coleta são obrigatórios para esse tipo de serviço.");
+    }
 
     const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } = await montarResumo({
       slug: unidadeRow.slug,
@@ -1002,6 +1168,40 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
       horario_coleta: pedido.horario_coleta,
       valor_total: resumo.valorTotal,
     };
+  });
+
+export const pedidoBalcaoSchema = z.object({
+  cpf: cpfSchema,
+  nome_completo: z.string().trim().min(3, "Informe o nome completo").max(160).optional(),
+  telefone: z
+    .string()
+    .trim()
+    .refine((v) => v.replace(/\D/g, "").length >= 10, "Telefone inválido")
+    .optional(),
+  quantidade_cestos: z.number().int().min(1).max(50),
+  observacoes: z.string().trim().max(800).optional().nullable(),
+});
+
+/**
+ * Registra, pelo painel, um pedido de balcão. Aberto a qualquer atendente
+ * (não só admin) — diferente do pedido manual (telefone/delivery), que
+ * continua admin-only, embora "Balcão" também esteja disponível como opção
+ * de tipo_servico ali (ver criarPedidoManual). Toda a lógica de fato mora
+ * em criarPedidoBalcaoInterno, compartilhada pelos dois pontos de entrada.
+ */
+export const criarPedidoBalcao = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => pedidoBalcaoSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const { unidadeId } = await exigirAtendente(context);
+    return criarPedidoBalcaoInterno({
+      unidadeId,
+      cpf: data.cpf,
+      nomeCompleto: data.nome_completo,
+      telefone: data.telefone,
+      quantidadeCestos: data.quantidade_cestos,
+      observacoes: data.observacoes,
+    });
   });
 
 /**
