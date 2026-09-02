@@ -332,7 +332,7 @@ export type Database = {
       }
       pedidos_delivery: {
         Row: {
-          bairro: string | null
+          bairro: string
           bairro_entrega: string | null
           cancelamento_teste: boolean
           cliente_id: string | null
@@ -351,7 +351,7 @@ export type Database = {
           motivo_cancelamento: string | null
           motoboy_nome: string | null
           nome_completo: string
-          numero: string | null
+          numero: string
           numero_entrega: string | null
           observacoes: string | null
           origem: string
@@ -359,7 +359,7 @@ export type Database = {
           quantidade_cestos: number
           referencia: string | null
           referencia_entrega: string | null
-          rua: string | null
+          rua: string
           rua_entrega: string | null
           status: Database["public"]["Enums"]["pedido_status"]
           telefone: string
@@ -375,7 +375,7 @@ export type Database = {
           visualizado_em: string | null
         }
         Insert: {
-          bairro?: string | null
+          bairro: string
           bairro_entrega?: string | null
           cancelamento_teste?: boolean
           cliente_id?: string | null
@@ -394,7 +394,7 @@ export type Database = {
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
           nome_completo: string
-          numero?: string | null
+          numero: string
           numero_entrega?: string | null
           observacoes?: string | null
           origem?: string
@@ -402,7 +402,7 @@ export type Database = {
           quantidade_cestos?: number
           referencia?: string | null
           referencia_entrega?: string | null
-          rua?: string | null
+          rua: string
           rua_entrega?: string | null
           status?: Database["public"]["Enums"]["pedido_status"]
           telefone: string
@@ -418,7 +418,7 @@ export type Database = {
           visualizado_em?: string | null
         }
         Update: {
-          bairro?: string | null
+          bairro?: string
           bairro_entrega?: string | null
           cancelamento_teste?: boolean
           cliente_id?: string | null
@@ -437,7 +437,7 @@ export type Database = {
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
           nome_completo?: string
-          numero?: string | null
+          numero?: string
           numero_entrega?: string | null
           observacoes?: string | null
           origem?: string
@@ -445,7 +445,7 @@ export type Database = {
           quantidade_cestos?: number
           referencia?: string | null
           referencia_entrega?: string | null
-          rua?: string | null
+          rua?: string
           rua_entrega?: string | null
           status?: Database["public"]["Enums"]["pedido_status"]
           telefone?: string
@@ -701,7 +701,7 @@ export type Database = {
         | "entregue"
         | "cancelado"
       tipo_desconto: "percentual" | "valor_fixo"
-      tipo_servico: "busca" | "entrega" | "busca_e_entrega" | "balcao"
+      tipo_servico: "busca" | "entrega" | "busca_e_entrega"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -717,12 +717,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -746,11 +746,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -771,11 +771,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -796,11 +796,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -813,11 +813,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -847,7 +847,7 @@ export const Constants = {
         "cancelado",
       ],
       tipo_desconto: ["percentual", "valor_fixo"],
-      tipo_servico: ["busca", "entrega", "busca_e_entrega", "balcao"],
+      tipo_servico: ["busca", "entrega", "busca_e_entrega"],
     },
   },
 } as const
