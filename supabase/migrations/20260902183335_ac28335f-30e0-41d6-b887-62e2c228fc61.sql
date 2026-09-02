@@ -1,0 +1,4 @@
+ALTER TABLE public.pedidos_delivery
+  ALTER COLUMN rua DROP NOT NULL,
+  ALTER COLUMN numero DROP NOT NULL,
+  ALTER COLUMN bairro DROP NOT NULL;
