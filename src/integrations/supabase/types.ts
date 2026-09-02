@@ -701,7 +701,7 @@ export type Database = {
         | "entregue"
         | "cancelado"
       tipo_desconto: "percentual" | "valor_fixo"
-      tipo_servico: "busca" | "entrega" | "busca_e_entrega"
+      tipo_servico: "busca" | "entrega" | "busca_e_entrega" | "balcao"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -847,7 +847,7 @@ export const Constants = {
         "cancelado",
       ],
       tipo_desconto: ["percentual", "valor_fixo"],
-      tipo_servico: ["busca", "entrega", "busca_e_entrega"],
+      tipo_servico: ["busca", "entrega", "busca_e_entrega", "balcao"],
     },
   },
 } as const

@@ -1,0 +1,1 @@
+ALTER TYPE public.tipo_servico ADD VALUE IF NOT EXISTS 'balcao';
