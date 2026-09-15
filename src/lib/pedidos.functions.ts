@@ -508,7 +508,15 @@ export async function montarResumo(input: z.infer<typeof resumoInputSchema>): Pr
     precoDetalhado: preco,
     resumo: {
       distanciaKm: pernas[0]?.distanciaKm ?? null,
-      deliveryMensagemErro: preco.deliveryIndisponivel ? deliveryMensagemErro : null,
+      // Mostra o aviso tanto quando não há frete calculável quanto quando o
+      // frete foi cobrado por estimativa (menor faixa) porque o endereço não
+      // pôde ser localizado — antes, nesse segundo caso, o frete simplesmente
+      // não era cobrado e ninguém era avisado.
+      deliveryMensagemErro:
+        preco.deliveryIndisponivel || preco.deliveryEstimado
+          ? (deliveryMensagemErro ??
+            "Não conseguimos medir a distância exata desse endereço; o frete mostrado é uma estimativa e a unidade confirma o valor final.")
+          : null,
       // Além da unidade fechada agora, um horário de coleta escolhido perto
       // do fechamento que estoure o prazo do ciclo também força reagendar
       // (ver slotCabeNoMesmoDia — na prática a grade de obterSlotsColeta já
