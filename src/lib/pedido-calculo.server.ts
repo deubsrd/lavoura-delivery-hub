@@ -453,6 +453,8 @@ export type ResumoPreco = {
   valorAtendente: number;
   valorDelivery: number | null;
   deliveryIndisponivel: boolean;
+  /** Frete cobrado pela menor faixa porque a distância não pôde ser medida — confirmar com a atendente. */
+  deliveryEstimado: boolean;
   /**
    * Função de desconto/promoção removida do cálculo (ver PR de remoção de
    * promoções). Campos mantidos só porque `pedidos_delivery` ainda tem as
@@ -605,6 +607,7 @@ export function calcularPreco(
     valorAtendente,
     valorDelivery,
     deliveryIndisponivel,
+    deliveryEstimado,
     valorDesconto,
     descontoDescricao,
     valorTotal,
