@@ -466,11 +466,28 @@ export type ResumoPreco = {
   detalhamento: ItemDetalhamento[];
 };
 
+/**
+ * Faixa correspondente à distância. Se a distância ultrapassar a maior
+ * faixa cadastrada, cobra a maior faixa em vez de devolver null — antes
+ * um endereço mais longe que a última faixa saía com frete ZERO no total,
+ * o que é exatamente o oposto do esperado (mais longe deveria custar mais).
+ */
 function buscarValorFaixa(faixas: FaixaDelivery[], distanciaKm: number): number | null {
-  const faixa = faixas
-    .filter((f) => f.distancia_ate_km >= distanciaKm)
-    .sort((a, b) => a.distancia_ate_km - b.distancia_ate_km)[0];
-  return faixa ? faixa.valor : null;
+  if (faixas.length === 0) return null;
+  const ordenadas = [...faixas].sort((a, b) => a.distancia_ate_km - b.distancia_ate_km);
+  const faixa = ordenadas.find((f) => f.distancia_ate_km >= distanciaKm);
+  return faixa ? faixa.valor : ordenadas[ordenadas.length - 1]!.valor;
+}
+
+/**
+ * Frete provisório quando não deu pra medir a distância (endereço não
+ * localizado pelo geocodificador). Antes esse caso zerava o frete no total
+ * e o pedido era cobrado sem taxa de entrega; agora cobra a MENOR faixa
+ * cadastrada e marca o valor como estimado, pra atendente confirmar depois.
+ */
+function menorValorFaixa(faixas: FaixaDelivery[]): number | null {
+  if (faixas.length === 0) return null;
+  return [...faixas].sort((a, b) => a.distancia_ate_km - b.distancia_ate_km)[0]!.valor;
 }
 
 const ROTULO_PERNA: Record<PernaDelivery["tipo"], string> = {
