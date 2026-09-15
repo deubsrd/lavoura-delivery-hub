@@ -544,35 +544,46 @@ export function calcularPreco(
   detalhamento.push({ rotulo: "Serviço da atendente", valor: valorAtendente });
 
   // Cada perna do trajeto (coleta e/ou entrega) é cobrada separadamente,
-  // pela faixa de distância correspondente. Se qualquer perna não puder
-  // ser precificada (endereço não localizado), o delivery inteiro fica
-  // "a confirmar" em vez de mostrar um total parcial enganoso.
+  // pela faixa de distância correspondente. Quando a distância de uma perna
+  // não pôde ser medida (endereço não localizado), o frete NÃO é mais
+  // zerado: cobra a menor faixa cadastrada como valor estimado e sinaliza
+  // `deliveryEstimado` para a atendente confirmar. Só fica realmente sem
+  // frete quando a unidade não tem nenhuma faixa cadastrada.
   let valorDelivery: number | null = null;
   let deliveryIndisponivel = false;
-  const valoresPernas: { tipo: PernaDelivery["tipo"]; distanciaKm: number; valor: number }[] = [];
+  let deliveryEstimado = false;
+  const valoresPernas: {
+    tipo: PernaDelivery["tipo"];
+    distanciaKm: number | null;
+    valor: number;
+  }[] = [];
   for (const perna of pernas) {
-    if (perna.distanciaKm === null) {
-      deliveryIndisponivel = true;
-      continue;
-    }
-    const valor = buscarValorFaixa(faixas, perna.distanciaKm);
+    const valor =
+      perna.distanciaKm === null
+        ? menorValorFaixa(faixas)
+        : buscarValorFaixa(faixas, perna.distanciaKm);
     if (valor === null) {
       deliveryIndisponivel = true;
       continue;
     }
+    if (perna.distanciaKm === null) deliveryEstimado = true;
     valoresPernas.push({ tipo: perna.tipo, distanciaKm: perna.distanciaKm, valor });
   }
   if (!deliveryIndisponivel && valoresPernas.length === pernas.length && pernas.length > 0) {
     valorDelivery = valoresPernas.reduce((soma, p) => soma + p.valor, 0);
     for (const p of valoresPernas) {
       detalhamento.push({
-        rotulo: `Delivery (${ROTULO_PERNA[p.tipo]}, ${p.distanciaKm.toFixed(1)} km)`,
+        rotulo:
+          p.distanciaKm === null
+            ? `Delivery (${ROTULO_PERNA[p.tipo]}, distância a confirmar)`
+            : `Delivery (${ROTULO_PERNA[p.tipo]}, ${p.distanciaKm.toFixed(1)} km)`,
         valor: p.valor,
       });
     }
   } else if (deliveryIndisponivel) {
-    detalhamento.push({ rotulo: "Delivery (fora da área de cobertura, a confirmar)", valor: 0 });
+    detalhamento.push({ rotulo: "Delivery (a confirmar com a unidade)", valor: 0 });
   }
+
 
   // Desconto/promoção por dia da semana foi removido do cálculo (decisão de
   // negócio — ver PR de remoção de promoções). O total do pedido passou a
