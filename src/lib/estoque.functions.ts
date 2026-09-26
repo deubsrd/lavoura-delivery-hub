@@ -2,7 +2,65 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { exigirAtendente } from "./unidade.functions";
+import { chaveDiaBoaVista } from "./lavoura";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
+
+/**
+ * Desconta `quantidade` da contagem de HOJE de um item, chamado quando um
+ * pedido de delivery/balcão/manual vende um item também controlado no
+ * estoque (ver item_id/item_quantidade em pedidos_delivery). Evita que a
+ * atendente precise contar esse produto duas vezes — uma no estoque, outra
+ * no pedido. Se ainda não existe lançamento de hoje pra esse item, parte
+ * do último lançamento anterior como base (nunca deixa a quantidade ficar
+ * negativa: se o desconto for maior que o estoque conhecido, zera).
+ * Erro aqui não deve derrubar a criação do pedido — quem chama decide se
+ * ignora a falha (ver criarPedidoBalcaoInterno/criarPedidoManual).
+ */
+export async function descontarItemDoEstoque(params: {
+  supabaseAdmin: SupabaseClient<Database>;
+  itemId: string;
+  unidadeId: string;
+  quantidade: number;
+}): Promise<void> {
+  const { supabaseAdmin, itemId, unidadeId, quantidade } = params;
+  const hoje = chaveDiaBoaVista(new Date().toISOString());
+
+  const { data: registroHoje } = await supabaseAdmin
+    .from("lancamentos_diarios")
+    .select("id, quantidade")
+    .eq("item_id", itemId)
+    .eq("data", hoje)
+    .maybeSingle();
+
+  if (registroHoje) {
+    const nova = Math.max(0, registroHoje.quantidade - quantidade);
+    await supabaseAdmin
+      .from("lancamentos_diarios")
+      .update({ quantidade: nova })
+      .eq("id", registroHoje.id);
+    return;
+  }
+
+  const { data: ultimoAnterior } = await supabaseAdmin
+    .from("lancamentos_diarios")
+    .select("quantidade")
+    .eq("item_id", itemId)
+    .lt("data", hoje)
+    .order("data", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const base = ultimoAnterior?.quantidade ?? 0;
+  await supabaseAdmin.from("lancamentos_diarios").insert({
+    item_id: itemId,
+    unidade_id: unidadeId,
+    data: hoje,
+    quantidade: Math.max(0, base - quantidade),
+    origem: "delivery",
+  });
+}
 
 /**
  * Dispara (se ainda não tiver disparado nas últimas 20h) o alerta de
