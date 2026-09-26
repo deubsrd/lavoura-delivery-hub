@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { isValidCpf, soDigitosCpf } from "./cpf";
 import { exigirAtendente } from "./unidade.functions";
+import { descontarItemDoEstoque } from "./estoque.functions";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const enderecoBase = {
@@ -603,22 +604,23 @@ export const criarPedido = createServerFn({ method: "POST" })
       request?.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       "desconhecido";
 
-    const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } = await montarResumo({
-      slug: data.slug,
-      quantidade_cestos: data.quantidade_cestos,
-      tipo_servico: data.tipo_servico,
-      rua: data.rua,
-      numero: data.numero,
-      bairro: data.bairro,
-      complemento: data.complemento,
-      referencia: data.referencia,
-      mesmo_endereco_entrega: data.mesmo_endereco_entrega,
-      rua_entrega: data.rua_entrega,
-      numero_entrega: data.numero_entrega,
-      bairro_entrega: data.bairro_entrega,
-      horario_coleta: data.horario_coleta,
-      usar_proximo_dia_util: data.usar_proximo_dia_util,
-    });
+    const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } =
+      await montarResumo({
+        slug: data.slug,
+        quantidade_cestos: data.quantidade_cestos,
+        tipo_servico: data.tipo_servico,
+        rua: data.rua,
+        numero: data.numero,
+        bairro: data.bairro,
+        complemento: data.complemento,
+        referencia: data.referencia,
+        mesmo_endereco_entrega: data.mesmo_endereco_entrega,
+        rua_entrega: data.rua_entrega,
+        numero_entrega: data.numero_entrega,
+        bairro_entrega: data.bairro_entrega,
+        horario_coleta: data.horario_coleta,
+        usar_proximo_dia_util: data.usar_proximo_dia_util,
+      });
 
     // Defesa contra client malicioso pulando a etapa de escolha de
     // horário: fora do horário de atendimento, o pedido só é aceito se o
@@ -812,6 +814,8 @@ async function criarPedidoBalcaoInterno(params: {
   telefone?: string | undefined;
   quantidadeCestos: number;
   observacoes?: string | null | undefined;
+  itemId?: string | null | undefined;
+  itemQuantidade?: number | null | undefined;
 }): Promise<{ id: string; data_prevista_retorno: string | null; valor_total: number }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -887,6 +891,8 @@ async function criarPedidoBalcaoInterno(params: {
       pedido_fora_do_horario: false,
       visualizado_em: agora.toISOString(),
       origem: "manual",
+      item_id: params.itemId || null,
+      item_quantidade: params.itemId ? (params.itemQuantidade ?? 1) : null,
       valor_lavagem: 0,
       valor_secagem: 0,
       valor_atendente: valorAtendente,
@@ -899,6 +905,17 @@ async function criarPedidoBalcaoInterno(params: {
     .select("id, data_prevista_retorno, data_pedido")
     .single();
   if (error) throw new Error(error.message);
+
+  if (params.itemId) {
+    // Falha ao descontar do estoque não deve derrubar o pedido já criado —
+    // fica só sem o ajuste automático, a atendente corrige na contagem.
+    await descontarItemDoEstoque({
+      supabaseAdmin,
+      itemId: params.itemId,
+      unidadeId: unidade.id,
+      quantidade: params.itemQuantidade ?? 1,
+    }).catch(() => {});
+  }
 
   return {
     id: pedido.id,
@@ -938,6 +955,11 @@ export const pedidoManualSchema = z
     // Balcão não tem horário de coleta: a coleta é "agora" (cliente já
     // está na loja).
     horario_coleta: z.string().datetime().optional(),
+    // Item extra também controlado no estoque, vendido junto com o
+    // serviço (ex.: uma bebida) — opcional, desconta automaticamente da
+    // contagem do dia (ver descontarItemDoEstoque).
+    item_id: z.string().uuid().optional().nullable(),
+    item_quantidade: z.number().int().min(1).max(50).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     // Balcão: sem endereço, sem horário de coleta — nada mais a validar.
@@ -1014,6 +1036,8 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
         telefone: data.telefone,
         quantidadeCestos: data.quantidade_cestos,
         observacoes: data.observacoes,
+        itemId: data.item_id,
+        itemQuantidade: data.item_quantidade,
       });
     }
 
@@ -1034,21 +1058,22 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
       throw new Error("Endereço e horário de coleta são obrigatórios para esse tipo de serviço.");
     }
 
-    const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } = await montarResumo({
-      slug: unidadeRow.slug,
-      quantidade_cestos: data.quantidade_cestos,
-      tipo_servico: data.tipo_servico,
-      rua: data.rua,
-      numero: data.numero,
-      bairro: data.bairro,
-      complemento: data.complemento,
-      referencia: data.referencia,
-      mesmo_endereco_entrega: data.mesmo_endereco_entrega,
-      rua_entrega: data.rua_entrega,
-      numero_entrega: data.numero_entrega,
-      bairro_entrega: data.bairro_entrega,
-      horario_coleta: data.horario_coleta,
-    });
+    const { unidade, horarios, ocupados, cestosPorDia, resumo, precoDetalhado } =
+      await montarResumo({
+        slug: unidadeRow.slug,
+        quantidade_cestos: data.quantidade_cestos,
+        tipo_servico: data.tipo_servico,
+        rua: data.rua,
+        numero: data.numero,
+        bairro: data.bairro,
+        complemento: data.complemento,
+        referencia: data.referencia,
+        mesmo_endereco_entrega: data.mesmo_endereco_entrega,
+        rua_entrega: data.rua_entrega,
+        numero_entrega: data.numero_entrega,
+        bairro_entrega: data.bairro_entrega,
+        horario_coleta: data.horario_coleta,
+      });
 
     const { slotDisponivel } = await import("./pedido-calculo.server");
     const disponivel = slotDisponivel(
@@ -1125,6 +1150,8 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
         pedido_fora_do_horario: resumo.pedidoForaDoHorario,
         visualizado_em: agora.toISOString(),
         origem: "manual",
+        item_id: data.item_id || null,
+        item_quantidade: data.item_id ? (data.item_quantidade ?? 1) : null,
         valor_lavagem: precoDetalhado.valorLavagem,
         valor_secagem: precoDetalhado.valorSecagem,
         valor_atendente: precoDetalhado.valorAtendente,
@@ -1142,6 +1169,15 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
         throw new Error("Esse horário acabou de ser reservado por outro pedido. Escolha outro.");
       }
       throw new Error(error.message);
+    }
+
+    if (data.item_id) {
+      await descontarItemDoEstoque({
+        supabaseAdmin,
+        itemId: data.item_id,
+        unidadeId: unidade.id,
+        quantidade: data.item_quantidade ?? 1,
+      }).catch(() => {});
     }
 
     await supabaseAdmin
@@ -1188,6 +1224,8 @@ export const pedidoBalcaoSchema = z.object({
     .optional(),
   quantidade_cestos: z.number().int().min(1).max(50),
   observacoes: z.string().trim().max(800).optional().nullable(),
+  item_id: z.string().uuid().optional().nullable(),
+  item_quantidade: z.number().int().min(1).max(50).optional().nullable(),
 });
 
 /**
@@ -1209,6 +1247,8 @@ export const criarPedidoBalcao = createServerFn({ method: "POST" })
       telefone: data.telefone,
       quantidadeCestos: data.quantidade_cestos,
       observacoes: data.observacoes,
+      itemId: data.item_id,
+      itemQuantidade: data.item_quantidade,
     });
   });
 

@@ -1187,7 +1187,77 @@ type DadosPedidoManual = {
   numero_entrega: string | null;
   bairro_entrega: string | null;
   horario_coleta: string | null;
+  item_id: string | null;
+  item_quantidade: number | null;
 };
+
+type ItemEstoque = { id: string; nome: string; unidade_medida: string };
+
+/**
+ * Item extra vendido junto com o serviço (ex.: uma bebida da geladeira) —
+ * opcional, some da contagem do dia automaticamente (ver
+ * descontarItemDoEstoque em estoque.functions.ts). Só lista itens de
+ * "geladeira" porque é o cenário descrito na especificação; itens de
+ * limpeza não são vendidos ao cliente.
+ */
+function SeletorItemExtra({
+  itemId,
+  onItemIdChange,
+  itemQtd,
+  onItemQtdChange,
+}: {
+  itemId: string;
+  onItemIdChange: (v: string) => void;
+  itemQtd: number;
+  onItemQtdChange: (v: number) => void;
+}) {
+  const itens = useQuery({
+    queryKey: ["itens-geladeira-venda"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("itens")
+        .select("id, nome, unidade_medida")
+        .eq("categoria", "geladeira")
+        .eq("ativo", true)
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as ItemEstoque[];
+    },
+  });
+
+  if ((itens.data ?? []).length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      <Label>Item extra vendido junto (opcional)</Label>
+      <div className="flex gap-2">
+        <select
+          value={itemId}
+          onChange={(e) => onItemIdChange(e.target.value)}
+          className="h-9 flex-1 rounded-md border bg-background px-2 text-sm"
+        >
+          <option value="">Nenhum</option>
+          {(itens.data ?? []).map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.nome}
+            </option>
+          ))}
+        </select>
+        {itemId ? (
+          <Input
+            type="number"
+            min={1}
+            max={50}
+            value={itemQtd}
+            onChange={(e) => onItemQtdChange(Math.max(1, Number(e.target.value) || 1))}
+            className="w-16"
+          />
+        ) : null}
+      </div>
+      <p className="text-xs text-muted-foreground">Desconta automaticamente do estoque de hoje.</p>
+    </div>
+  );
+}
 
 function NovoPedidoManualForm({
   onCriar,
@@ -1210,6 +1280,8 @@ function NovoPedidoManualForm({
   const [bairroEntrega, setBairroEntrega] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [horarioLocal, setHorarioLocal] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [itemQtd, setItemQtd] = useState(1);
   const [enviando, setEnviando] = useState(false);
 
   const ehBalcao = tipoServico === "balcao";
@@ -1244,6 +1316,8 @@ function NovoPedidoManualForm({
         numero_entrega: precisaEnderecoEntrega ? numeroEntrega.trim() || null : null,
         bairro_entrega: precisaEnderecoEntrega ? bairroEntrega.trim() || null : null,
         horario_coleta: ehBalcao ? null : horarioLocalParaIso(horarioLocal),
+        item_id: itemId || null,
+        item_quantidade: itemId ? itemQtd : null,
       });
     } finally {
       setEnviando(false);
@@ -1393,6 +1467,13 @@ function NovoPedidoManualForm({
         ) : null}
       </div>
 
+      <SeletorItemExtra
+        itemId={itemId}
+        onItemIdChange={setItemId}
+        itemQtd={itemQtd}
+        onItemQtdChange={setItemQtd}
+      />
+
       <div className="space-y-1">
         <Label>Observações</Label>
         <Textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} />
@@ -1416,6 +1497,8 @@ type DadosPedidoBalcao = {
   telefone?: string | undefined;
   quantidade_cestos: number;
   observacoes: string | null;
+  item_id: string | null;
+  item_quantidade: number | null;
 };
 
 function NovoPedidoBalcaoForm({
@@ -1428,6 +1511,8 @@ function NovoPedidoBalcaoForm({
   const [telefone, setTelefone] = useState("");
   const [cestos, setCestos] = useState(1);
   const [observacoes, setObservacoes] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [itemQtd, setItemQtd] = useState(1);
   const [enviando, setEnviando] = useState(false);
 
   async function enviar() {
@@ -1443,6 +1528,8 @@ function NovoPedidoBalcaoForm({
         telefone: telefone.trim() || undefined,
         quantidade_cestos: cestos,
         observacoes: observacoes.trim() || null,
+        item_id: itemId || null,
+        item_quantidade: itemId ? itemQtd : null,
       });
     } finally {
       setEnviando(false);
@@ -1484,6 +1571,13 @@ function NovoPedidoBalcaoForm({
           onChange={(e) => setCestos(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
         />
       </div>
+
+      <SeletorItemExtra
+        itemId={itemId}
+        onItemIdChange={setItemId}
+        itemQtd={itemQtd}
+        onItemQtdChange={setItemQtd}
+      />
 
       <div className="space-y-1">
         <Label>Observações</Label>
