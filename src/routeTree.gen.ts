@@ -18,6 +18,7 @@ import { Route as SlugPedidoRouteImport } from './routes/$slug.pedido'
 import { Route as AuthenticatedAdminPrecosRouteImport } from './routes/_authenticated/admin-precos'
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedEstoqueRouteImport } from './routes/_authenticated/estoque'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
 import { Route as AuthenticatedConfiguracoesConvitesRouteImport } from './routes/_authenticated/configuracoes/convites'
 import { Route as AuthenticatedConfiguracoesEnderecoRouteImport } from './routes/_authenticated/configuracoes/endereco'
@@ -68,6 +69,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedEstoqueRoute = AuthenticatedEstoqueRouteImport.update({
+  id: '/estoque',
+  path: '/estoque',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPainelRoute = AuthenticatedPainelRouteImport.update({
   id: '/painel',
   path: '/painel',
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/estoque': typeof AuthenticatedEstoqueRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/estoque': typeof AuthenticatedEstoqueRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/estoque': typeof AuthenticatedEstoqueRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
   '/_authenticated/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/_authenticated/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
@@ -147,6 +156,7 @@ export interface FileRouteTypes {
     | '/admin-precos'
     | '/clientes'
     | '/dashboard'
+    | '/estoque'
     | '/painel'
     | '/configuracoes/convites'
     | '/configuracoes/endereco'
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/admin-precos'
     | '/clientes'
     | '/dashboard'
+    | '/estoque'
     | '/painel'
     | '/configuracoes/convites'
     | '/configuracoes/endereco'
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin-precos'
     | '/_authenticated/clientes'
     | '/_authenticated/dashboard'
+    | '/_authenticated/estoque'
     | '/_authenticated/painel'
     | '/_authenticated/configuracoes/convites'
     | '/_authenticated/configuracoes/endereco'
@@ -256,6 +268,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/estoque': {
+      id: '/_authenticated/estoque'
+      path: '/estoque'
+      fullPath: '/estoque'
+      preLoaderRoute: typeof AuthenticatedEstoqueRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/painel': {
       id: '/_authenticated/painel'
       path: '/painel'
@@ -291,6 +310,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminPrecosRoute: typeof AuthenticatedAdminPrecosRoute
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedEstoqueRoute: typeof AuthenticatedEstoqueRoute
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
   AuthenticatedConfiguracoesConvitesRoute: typeof AuthenticatedConfiguracoesConvitesRoute
   AuthenticatedConfiguracoesEnderecoRoute: typeof AuthenticatedConfiguracoesEnderecoRoute
@@ -301,6 +321,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminPrecosRoute: AuthenticatedAdminPrecosRoute,
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedEstoqueRoute: AuthenticatedEstoqueRoute,
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
   AuthenticatedConfiguracoesConvitesRoute:
     AuthenticatedConfiguracoesConvitesRoute,

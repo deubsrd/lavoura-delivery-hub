@@ -13,6 +13,7 @@ import {
   Loader2,
   LogOut,
   MessageCircle,
+  Package,
   PackageCheck,
   Pencil,
   Plus,
@@ -454,6 +455,16 @@ function PainelPage() {
               className="text-primary-foreground hover:bg-primary-foreground/10"
             >
               <Plus className="size-4" /> Pedido manual
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              asChild
+              className="text-primary-foreground hover:bg-primary-foreground/10"
+            >
+              <Link to="/estoque">
+                <Package className="size-4" /> Estoque
+              </Link>
             </Button>
             {atendente.data?.role === "admin" ? (
               <Button
