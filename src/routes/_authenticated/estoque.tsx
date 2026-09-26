@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Minus, Plus, Settings2 } from "lucide-react";
@@ -98,11 +98,16 @@ function EstoquePage() {
     <main className="mx-auto max-w-2xl space-y-5 px-5 py-8">
       <div className="flex items-center justify-between">
         <PaginaHeader titulo="Estoque" />
-        {souAdmin ? (
-          <Button variant="outline" size="sm" onClick={() => setGerenciandoItens(true)}>
-            <Settings2 className="size-4" /> Itens
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <Link to="/estoque/autonomia" className="text-sm font-medium underline">
+            Autonomia e alertas
+          </Link>
+          {souAdmin ? (
+            <Button variant="outline" size="sm" onClick={() => setGerenciandoItens(true)}>
+              <Settings2 className="size-4" /> Itens
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex gap-2 border-b">

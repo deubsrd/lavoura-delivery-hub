@@ -388,6 +388,41 @@ export type Database = {
           },
         ]
       }
+      notificacoes_estoque: {
+        Row: {
+          created_at: string
+          dias_autonomia: number | null
+          id: string
+          item_id: string
+          resposta: string | null
+          sucesso: boolean
+        }
+        Insert: {
+          created_at?: string
+          dias_autonomia?: number | null
+          id?: string
+          item_id: string
+          resposta?: string | null
+          sucesso: boolean
+        }
+        Update: {
+          created_at?: string
+          dias_autonomia?: number | null
+          id?: string
+          item_id?: string
+          resposta?: string | null
+          sucesso?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notificacoes_estoque_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "itens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notificacoes_pedido: {
         Row: {
           created_at: string
