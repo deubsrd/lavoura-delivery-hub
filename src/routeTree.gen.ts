@@ -23,6 +23,7 @@ import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedConfiguracoesConvitesRouteImport } from './routes/_authenticated/configuracoes/convites'
 import { Route as AuthenticatedConfiguracoesEnderecoRouteImport } from './routes/_authenticated/configuracoes/endereco'
 import { Route as AuthenticatedConfiguracoesIdentificacaoRouteImport } from './routes/_authenticated/configuracoes/identificacao'
+import { Route as AuthenticatedEstoqueAutonomiaRouteImport } from './routes/_authenticated/estoque.autonomia'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -97,6 +98,12 @@ const AuthenticatedConfiguracoesIdentificacaoRoute =
     path: '/configuracoes/identificacao',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedEstoqueAutonomiaRoute =
+  AuthenticatedEstoqueAutonomiaRouteImport.update({
+    id: '/autonomia',
+    path: '/autonomia',
+    getParentRoute: () => AuthenticatedEstoqueRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -107,11 +114,12 @@ export interface FileRoutesByFullPath {
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/estoque': typeof AuthenticatedEstoqueRoute
+  '/estoque': typeof AuthenticatedEstoqueRouteWithChildren
   '/painel': typeof AuthenticatedPainelRoute
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
   '/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
+  '/estoque/autonomia': typeof AuthenticatedEstoqueAutonomiaRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -122,11 +130,12 @@ export interface FileRoutesByTo {
   '/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/clientes': typeof AuthenticatedClientesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/estoque': typeof AuthenticatedEstoqueRoute
+  '/estoque': typeof AuthenticatedEstoqueRouteWithChildren
   '/painel': typeof AuthenticatedPainelRoute
   '/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
   '/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
+  '/estoque/autonomia': typeof AuthenticatedEstoqueAutonomiaRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -139,11 +148,12 @@ export interface FileRoutesById {
   '/_authenticated/admin-precos': typeof AuthenticatedAdminPrecosRoute
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/estoque': typeof AuthenticatedEstoqueRoute
+  '/_authenticated/estoque': typeof AuthenticatedEstoqueRouteWithChildren
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
   '/_authenticated/configuracoes/convites': typeof AuthenticatedConfiguracoesConvitesRoute
   '/_authenticated/configuracoes/endereco': typeof AuthenticatedConfiguracoesEnderecoRoute
   '/_authenticated/configuracoes/identificacao': typeof AuthenticatedConfiguracoesIdentificacaoRoute
+  '/_authenticated/estoque/autonomia': typeof AuthenticatedEstoqueAutonomiaRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/configuracoes/convites'
     | '/configuracoes/endereco'
     | '/configuracoes/identificacao'
+    | '/estoque/autonomia'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '/configuracoes/convites'
     | '/configuracoes/endereco'
     | '/configuracoes/identificacao'
+    | '/estoque/autonomia'
   id:
     | '__root__'
     | '/'
@@ -192,6 +204,7 @@ export interface FileRouteTypes {
     | '/_authenticated/configuracoes/convites'
     | '/_authenticated/configuracoes/endereco'
     | '/_authenticated/configuracoes/identificacao'
+    | '/_authenticated/estoque/autonomia'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -303,14 +316,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedConfiguracoesIdentificacaoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/estoque/autonomia': {
+      id: '/_authenticated/estoque/autonomia'
+      path: '/autonomia'
+      fullPath: '/estoque/autonomia'
+      preLoaderRoute: typeof AuthenticatedEstoqueAutonomiaRouteImport
+      parentRoute: typeof AuthenticatedEstoqueRoute
+    }
   }
 }
+
+interface AuthenticatedEstoqueRouteChildren {
+  AuthenticatedEstoqueAutonomiaRoute: typeof AuthenticatedEstoqueAutonomiaRoute
+}
+
+const AuthenticatedEstoqueRouteChildren: AuthenticatedEstoqueRouteChildren = {
+  AuthenticatedEstoqueAutonomiaRoute: AuthenticatedEstoqueAutonomiaRoute,
+}
+
+const AuthenticatedEstoqueRouteWithChildren =
+  AuthenticatedEstoqueRoute._addFileChildren(AuthenticatedEstoqueRouteChildren)
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminPrecosRoute: typeof AuthenticatedAdminPrecosRoute
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedEstoqueRoute: typeof AuthenticatedEstoqueRoute
+  AuthenticatedEstoqueRoute: typeof AuthenticatedEstoqueRouteWithChildren
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
   AuthenticatedConfiguracoesConvitesRoute: typeof AuthenticatedConfiguracoesConvitesRoute
   AuthenticatedConfiguracoesEnderecoRoute: typeof AuthenticatedConfiguracoesEnderecoRoute
@@ -321,7 +352,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminPrecosRoute: AuthenticatedAdminPrecosRoute,
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedEstoqueRoute: AuthenticatedEstoqueRoute,
+  AuthenticatedEstoqueRoute: AuthenticatedEstoqueRouteWithChildren,
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
   AuthenticatedConfiguracoesConvitesRoute:
     AuthenticatedConfiguracoesConvitesRoute,
