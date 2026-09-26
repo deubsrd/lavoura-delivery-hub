@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { KanbanSquare, LayoutDashboard, LogOut, Settings2, Users } from "lucide-react";
+import { KanbanSquare, LayoutDashboard, LogOut, Package, Settings2, Users } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
@@ -50,7 +50,6 @@ export function AppShell() {
     );
   }
 
-
   async function sair() {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -94,6 +93,13 @@ export function AppShell() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/estoque"}>
+                    <Link to="/estoque">
+                      <Package /> Estoque
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
                   <SidebarMenuButton isActive={CAMINHOS_CONFIGURACOES.includes(pathname)}>
                     <Settings2 /> Configurações da unidade
                   </SidebarMenuButton>
@@ -107,7 +113,10 @@ export function AppShell() {
                       </SidebarMenuSubButton>
                     </SidebarMenuSubItem>
                     <SidebarMenuSubItem>
-                      <SidebarMenuSubButton asChild isActive={pathname === "/configuracoes/endereco"}>
+                      <SidebarMenuSubButton
+                        asChild
+                        isActive={pathname === "/configuracoes/endereco"}
+                      >
                         <Link to="/configuracoes/endereco">Endereço</Link>
                       </SidebarMenuSubButton>
                     </SidebarMenuSubItem>
@@ -117,7 +126,10 @@ export function AppShell() {
                       </SidebarMenuSubButton>
                     </SidebarMenuSubItem>
                     <SidebarMenuSubItem>
-                      <SidebarMenuSubButton asChild isActive={pathname === "/configuracoes/convites"}>
+                      <SidebarMenuSubButton
+                        asChild
+                        isActive={pathname === "/configuracoes/convites"}
+                      >
                         <Link to="/configuracoes/convites">Convites</Link>
                       </SidebarMenuSubButton>
                     </SidebarMenuSubItem>
