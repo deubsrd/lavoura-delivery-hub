@@ -263,166 +263,6 @@ export type Database = {
           },
         ]
       }
-      itens: {
-        Row: {
-          ativo: boolean
-          categoria: Database["public"]["Enums"]["categoria_item"]
-          created_at: string
-          custo_unitario: number | null
-          estoque_minimo: number
-          id: string
-          limite_alerta_amarelo_dias: number
-          limite_alerta_vermelho_dias: number
-          nome: string
-          unidade_id: string
-          unidade_medida: Database["public"]["Enums"]["unidade_medida_item"]
-          updated_at: string
-        }
-        Insert: {
-          ativo?: boolean
-          categoria: Database["public"]["Enums"]["categoria_item"]
-          created_at?: string
-          custo_unitario?: number | null
-          estoque_minimo?: number
-          id?: string
-          limite_alerta_amarelo_dias?: number
-          limite_alerta_vermelho_dias?: number
-          nome: string
-          unidade_id: string
-          unidade_medida: Database["public"]["Enums"]["unidade_medida_item"]
-          updated_at?: string
-        }
-        Update: {
-          ativo?: boolean
-          categoria?: Database["public"]["Enums"]["categoria_item"]
-          created_at?: string
-          custo_unitario?: number | null
-          estoque_minimo?: number
-          id?: string
-          limite_alerta_amarelo_dias?: number
-          limite_alerta_vermelho_dias?: number
-          nome?: string
-          unidade_id?: string
-          unidade_medida?: Database["public"]["Enums"]["unidade_medida_item"]
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "itens_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: false
-            referencedRelation: "unidades"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "itens_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: false
-            referencedRelation: "unidades_publico"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      lancamentos_diarios: {
-        Row: {
-          created_at: string
-          data: string
-          id: string
-          item_id: string
-          origem: string
-          quantidade: number
-          unidade_id: string
-          updated_at: string
-          usuario_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          data: string
-          id?: string
-          item_id: string
-          origem?: string
-          quantidade: number
-          unidade_id: string
-          updated_at?: string
-          usuario_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          data?: string
-          id?: string
-          item_id?: string
-          origem?: string
-          quantidade?: number
-          unidade_id?: string
-          updated_at?: string
-          usuario_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "lancamentos_diarios_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "itens"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "lancamentos_diarios_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: false
-            referencedRelation: "unidades"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "lancamentos_diarios_unidade_id_fkey"
-            columns: ["unidade_id"]
-            isOneToOne: false
-            referencedRelation: "unidades_publico"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "lancamentos_diarios_usuario_id_fkey"
-            columns: ["usuario_id"]
-            isOneToOne: false
-            referencedRelation: "atendentes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      notificacoes_estoque: {
-        Row: {
-          created_at: string
-          dias_autonomia: number | null
-          id: string
-          item_id: string
-          resposta: string | null
-          sucesso: boolean
-        }
-        Insert: {
-          created_at?: string
-          dias_autonomia?: number | null
-          id?: string
-          item_id: string
-          resposta?: string | null
-          sucesso: boolean
-        }
-        Update: {
-          created_at?: string
-          dias_autonomia?: number | null
-          id?: string
-          item_id?: string
-          resposta?: string | null
-          sucesso?: boolean
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notificacoes_estoque_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "itens"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notificacoes_pedido: {
         Row: {
           created_at: string
@@ -507,8 +347,6 @@ export type Database = {
           horario_coleta: string | null
           id: string
           ip_origem: string | null
-          item_id: string | null
-          item_quantidade: number | null
           mesmo_endereco_entrega: boolean | null
           motivo_cancelamento: string | null
           motoboy_nome: string | null
@@ -552,8 +390,6 @@ export type Database = {
           horario_coleta?: string | null
           id?: string
           ip_origem?: string | null
-          item_id?: string | null
-          item_quantidade?: number | null
           mesmo_endereco_entrega?: boolean | null
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
@@ -597,8 +433,6 @@ export type Database = {
           horario_coleta?: string | null
           id?: string
           ip_origem?: string | null
-          item_id?: string | null
-          item_quantidade?: number | null
           mesmo_endereco_entrega?: boolean | null
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
@@ -632,13 +466,6 @@ export type Database = {
             columns: ["cliente_id"]
             isOneToOne: false
             referencedRelation: "clientes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "pedidos_delivery_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "itens"
             referencedColumns: ["id"]
           },
           {
@@ -865,8 +692,6 @@ export type Database = {
         | "atendente"
         | "delivery"
       atendente_role: "atendente" | "admin"
-      categoria_item: "limpeza" | "geladeira"
-      unidade_medida_item: "litro" | "unidade" | "pacote"
       pedido_status:
         | "recebido"
         | "motoboy_busca"
@@ -1012,8 +837,6 @@ export const Constants = {
         "delivery",
       ],
       atendente_role: ["atendente", "admin"],
-      categoria_item: ["limpeza", "geladeira"],
-      unidade_medida_item: ["litro", "unidade", "pacote"],
       pedido_status: [
         "recebido",
         "motoboy_busca",
