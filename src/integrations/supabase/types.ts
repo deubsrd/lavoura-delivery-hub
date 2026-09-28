@@ -866,7 +866,6 @@ export type Database = {
         | "delivery"
       atendente_role: "atendente" | "admin"
       categoria_item: "limpeza" | "geladeira"
-      unidade_medida_item: "litro" | "unidade" | "pacote"
       pedido_status:
         | "recebido"
         | "motoboy_busca"
@@ -877,6 +876,7 @@ export type Database = {
         | "cancelado"
       tipo_desconto: "percentual" | "valor_fixo"
       tipo_servico: "busca" | "entrega" | "busca_e_entrega" | "balcao"
+      unidade_medida_item: "litro" | "unidade" | "pacote"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1013,7 +1013,6 @@ export const Constants = {
       ],
       atendente_role: ["atendente", "admin"],
       categoria_item: ["limpeza", "geladeira"],
-      unidade_medida_item: ["litro", "unidade", "pacote"],
       pedido_status: [
         "recebido",
         "motoboy_busca",
@@ -1025,6 +1024,7 @@ export const Constants = {
       ],
       tipo_desconto: ["percentual", "valor_fixo"],
       tipo_servico: ["busca", "entrega", "busca_e_entrega", "balcao"],
+      unidade_medida_item: ["litro", "unidade", "pacote"],
     },
   },
 } as const
