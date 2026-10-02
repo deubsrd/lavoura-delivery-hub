@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790965210949,
+      "tag": "0000_grant_stock_rls_helpers_to_authenticated",
+      "breakpoints": true
+    }
+  ]
+}
