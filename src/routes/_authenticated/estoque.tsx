@@ -95,10 +95,12 @@ function EstoquePage() {
   const souAdmin = atendente.data.role === "admin";
 
   return (
-    <main className="mx-auto max-w-2xl space-y-5 px-5 py-8">
-      <div className="flex items-center justify-between">
-        <PaginaHeader titulo="Estoque" />
-        <div className="flex items-center gap-2">
+    <main className="mx-auto w-full max-w-7xl space-y-5 px-5 py-8 lg:px-8">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 sm:flex sm:flex-wrap sm:justify-between">
+        <div className="min-w-0">
+          <PaginaHeader titulo="Estoque" />
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           <Link to="/estoque/autonomia" className="text-sm font-medium underline">
             Autonomia e alertas
           </Link>
@@ -256,7 +258,7 @@ function ContagemDiaria({
 
   return (
     <div className="space-y-3">
-      <div className="space-y-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         {(itens.data ?? []).map((item) => {
           const doItem = lancamentosPorItem.get(item.id) ?? [];
           const atualizadoHoje = doItem.some((l) => l.data === hoje);
