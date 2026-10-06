@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 
 import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 import { validarCodigoConvite } from "@/lib/atendentes.functions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,7 @@ function AuthPage() {
   const [senha, setSenha] = useState("");
   const [codigoConvite, setCodigoConvite] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [carregandoGoogle, setCarregandoGoogle] = useState(false);
   const [avisoEmail, setAvisoEmail] = useState(false);
 
   const [recuperando, setRecuperando] = useState(false);
@@ -125,6 +127,24 @@ function AuthPage() {
       return;
     }
     setLinkRecuperacaoEnviado(true);
+  }
+
+  async function entrarComGoogle() {
+    setCarregandoGoogle(true);
+    const result = await lovable.auth.signInWithOAuth("google", {
+      redirect_uri: window.location.origin,
+      extraParams: { prompt: "select_account" },
+    });
+
+    if (result.error) {
+      setCarregandoGoogle(false);
+      toast.error("Não foi possível entrar com o Google agora. Tente novamente.");
+      return;
+    }
+
+    if (!result.redirected) {
+      navigate({ to: "/painel", replace: true });
+    }
   }
 
   if (recuperando) {
@@ -284,6 +304,32 @@ function AuthPage() {
                 {modo === "entrar" ? "Entrar" : "Criar acesso"}
               </Button>
             </form>
+
+            {modo === "entrar" ? (
+              <div className="mt-5">
+                <div className="flex items-center gap-3" aria-hidden="true">
+                  <span className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground">ou</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={carregandoGoogle || carregando}
+                  onClick={entrarComGoogle}
+                  className="mt-5 h-11 w-full"
+                >
+                  {carregandoGoogle ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <span className="grid size-5 place-items-center rounded-full border border-border text-xs font-bold">
+                      G
+                    </span>
+                  )}
+                  Entrar com Google
+                </Button>
+              </div>
+            ) : null}
           </>
         )}
 
