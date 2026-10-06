@@ -57,7 +57,17 @@ function RedefinirSenhaPage() {
     const { error } = await supabase.auth.updateUser({ password: senha });
     setCarregando(false);
     if (error) {
-      toast.error("Não foi possível redefinir a senha. Solicite um novo link.");
+      const msg = (error.message || "").toLowerCase();
+      const code = (error as { code?: string }).code ?? "";
+      if (code === "same_password" || msg.includes("different from the old")) {
+        toast.error("A nova senha precisa ser diferente da senha atual.");
+      } else if (code === "weak_password" || msg.includes("weak") || msg.includes("pwned") || msg.includes("leaked")) {
+        toast.error("Essa senha é fraca ou já apareceu em vazamentos. Escolha outra mais forte.");
+      } else if (msg.includes("session") || msg.includes("jwt") || msg.includes("expired")) {
+        toast.error("O link expirou. Solicite um novo link de redefinição.");
+      } else {
+        toast.error(`Não foi possível redefinir a senha: ${error.message}`);
+      }
       return;
     }
     toast.success("Senha redefinida com sucesso.");
