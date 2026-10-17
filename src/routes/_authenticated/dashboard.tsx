@@ -8,7 +8,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAtendenteAdmin } from "@/hooks/use-atendente-admin";
 import { AcessoRestrito } from "@/components/acesso-restrito";
 import { PaginaHeader } from "@/components/pagina-header";
-import { TIPO_SERVICO_LABEL, formatarMoeda, type TipoServico } from "@/lib/lavoura";
+import {
+  FORMA_PAGAMENTO_LABEL,
+  TIPO_SERVICO_LABEL,
+  formatarMoeda,
+  type FormaPagamento,
+  type TipoServico,
+} from "@/lib/lavoura";
 import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
@@ -73,7 +79,17 @@ type PedidoDashboard = {
   distancia_km: number | null;
   cliente_id: string | null;
   cancelamento_teste: boolean;
+  forma_pagamento: string | null;
 };
+
+/** Filtro de forma de pagamento: tudo, uma forma específica ou pedidos sem forma informada. */
+type FiltroPagamento = "todas" | "nao_informado" | FormaPagamento;
+
+function passaFiltroPagamento(forma: string | null, filtro: FiltroPagamento): boolean {
+  if (filtro === "todas") return true;
+  if (filtro === "nao_informado") return !forma;
+  return forma === filtro;
+}
 
 type ClienteDashboard = { id: string; created_at: string };
 
@@ -101,6 +117,7 @@ function SecaoDashboard() {
   // se o admin deixar a aba aberta atravessando a meia-noite) — estável
   // entre renders, pra não invalidar os useMemo abaixo à toa.
   const hoje = useMemo(() => new Date(), []);
+  const [filtroPagamento, setFiltroPagamento] = useState<FiltroPagamento>("todas");
 
   // Os 6 cards do topo são sempre "hoje/esta semana/este mês" de verdade —
   // não seguem a navegação do gráfico abaixo. Busca desde o início do mês
@@ -117,7 +134,7 @@ function SecaoDashboard() {
       const { data, error } = await supabase
         .from("pedidos_delivery")
         .select(
-          "data_pedido, status, tipo_servico, valor_total, distancia_km, cliente_id, cancelamento_teste",
+          "data_pedido, status, tipo_servico, valor_total, distancia_km, cliente_id, cancelamento_teste, forma_pagamento",
         )
         .gte("data_pedido", inicioJanelaStats.toISOString())
         .order("data_pedido", { ascending: true });
@@ -143,7 +160,9 @@ function SecaoDashboard() {
     // negócio real — ficam de fora de toda métrica, não só da taxa de
     // cancelamento, senão inflariam "pedidos este mês"/"todos este mês" à
     // toa.
-    const pedidos = (pedidosStats.data ?? []).filter((p) => !p.cancelamento_teste);
+    const pedidos = (pedidosStats.data ?? []).filter(
+      (p) => !p.cancelamento_teste && passaFiltroPagamento(p.forma_pagamento, filtroPagamento),
+    );
     const clientes = clientesStats.data ?? [];
     const naoCancelados = pedidos.filter((p) => p.status !== "cancelado");
 
@@ -270,13 +289,49 @@ function SecaoDashboard() {
       taxaCancelamentoEsteMes,
       porTipoEsteMes,
     };
-  }, [pedidosStats.data, clientesStats.data, hoje]);
+  }, [pedidosStats.data, clientesStats.data, hoje, filtroPagamento]);
+
+  // Faturamento do mês corrente por forma de pagamento — sempre sem o filtro,
+  // pra conferência do caixa (ex.: quanto entrou em dinheiro vivo).
+  const vendasMesPorPagamento = useMemo(() => {
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString();
+    const totais = new Map<string, number>();
+    for (const p of pedidosStats.data ?? []) {
+      if (p.cancelamento_teste || p.status === "cancelado" || p.data_pedido < inicioMes) continue;
+      const chave = p.forma_pagamento ?? "nao_informado";
+      totais.set(chave, (totais.get(chave) ?? 0) + (p.valor_total ?? 0));
+    }
+    return totais;
+  }, [pedidosStats.data, hoje]);
 
   const carregandoStats = pedidosStats.isLoading || clientesStats.isLoading;
 
   return (
     <main className="mx-auto w-full max-w-[1800px] space-y-6 px-5 py-8 xl:px-10">
       <PaginaHeader titulo="Dashboard" />
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <label htmlFor="filtro-pagamento" className="font-medium">
+          Forma de pagamento
+        </label>
+        <select
+          id="filtro-pagamento"
+          value={filtroPagamento}
+          onChange={(e) => setFiltroPagamento(e.target.value as FiltroPagamento)}
+          className="h-9 rounded-md border bg-background px-2 text-sm"
+        >
+          <option value="todas">Todas</option>
+          {(Object.keys(FORMA_PAGAMENTO_LABEL) as FormaPagamento[]).map((f) => (
+            <option key={f} value={f}>
+              {FORMA_PAGAMENTO_LABEL[f]}
+            </option>
+          ))}
+          <option value="nao_informado">Não informado</option>
+        </select>
+        <span className="text-xs text-muted-foreground">
+          Vale para os cards e o gráfico de vendas.
+        </span>
+      </div>
 
       {carregandoStats ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -315,7 +370,21 @@ function SecaoDashboard() {
             />
           </div>
 
-          <SecaoGrafico />
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {(Object.keys(FORMA_PAGAMENTO_LABEL) as FormaPagamento[]).map((f) => (
+              <StatTileSimples
+                key={f}
+                rotulo={`${FORMA_PAGAMENTO_LABEL[f]} (mês)`}
+                valor={formatarMoeda(vendasMesPorPagamento.get(f) ?? 0)}
+              />
+            ))}
+            <StatTileSimples
+              rotulo="Não informado (mês)"
+              valor={formatarMoeda(vendasMesPorPagamento.get("nao_informado") ?? 0)}
+            />
+          </section>
+
+          <SecaoGrafico filtroPagamento={filtroPagamento} />
 
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
             <StatTileSimples
@@ -416,7 +485,7 @@ function baixarCsv(conteudo: string, nomeArquivo: string) {
   URL.revokeObjectURL(url);
 }
 
-function SecaoGrafico() {
+function SecaoGrafico({ filtroPagamento }: { filtroPagamento: FiltroPagamento }) {
   const [modo, setModo] = useState<ModoGrafico>("diario");
   const [referencia, setReferencia] = useState(() => new Date());
   const [mostrarDetalhes, setMostrarDetalhes] = useState(false);
@@ -437,16 +506,23 @@ function SecaoGrafico() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pedidos_delivery")
-        .select("data_pedido, status, valor_total")
+        .select("data_pedido, status, valor_total, forma_pagamento")
         .gte("data_pedido", intervalo.inicio.toISOString())
         .lte("data_pedido", intervalo.fim.toISOString());
       if (error) throw error;
-      return (data ?? []) as { data_pedido: string; status: string; valor_total: number | null }[];
+      return (data ?? []) as {
+        data_pedido: string;
+        status: string;
+        valor_total: number | null;
+        forma_pagamento: string | null;
+      }[];
     },
   });
 
   const pontos = useMemo(() => {
-    const naoCancelados = (pedidos.data ?? []).filter((p) => p.status !== "cancelado");
+    const naoCancelados = (pedidos.data ?? []).filter(
+      (p) => p.status !== "cancelado" && passaFiltroPagamento(p.forma_pagamento, filtroPagamento),
+    );
     if (modo === "diario") {
       const diasNoMes = new Date(referencia.getFullYear(), referencia.getMonth() + 1, 0).getDate();
       const porDia = new Map<number, number>();
@@ -465,7 +541,7 @@ function SecaoGrafico() {
       porMes.set(d.getMonth(), (porMes.get(d.getMonth()) ?? 0) + (p.valor_total ?? 0));
     }
     return MESES_ABREV.map((nome, i) => ({ rotulo: nome, valor: porMes.get(i) ?? 0 }));
-  }, [pedidos.data, modo, referencia]);
+  }, [pedidos.data, modo, referencia, filtroPagamento]);
 
   function navegar(delta: number) {
     setReferencia((atual) =>

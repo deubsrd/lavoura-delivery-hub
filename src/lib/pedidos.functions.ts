@@ -816,6 +816,7 @@ async function criarPedidoBalcaoInterno(params: {
   observacoes?: string | null | undefined;
   itemId?: string | null | undefined;
   itemQuantidade?: number | null | undefined;
+  formaPagamento?: "dinheiro" | "pix" | "cartao" | "totem" | null | undefined;
 }): Promise<{ id: string; data_prevista_retorno: string | null; valor_total: number }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -893,6 +894,7 @@ async function criarPedidoBalcaoInterno(params: {
       origem: "manual",
       item_id: params.itemId || null,
       item_quantidade: params.itemId ? (params.itemQuantidade ?? 1) : null,
+      forma_pagamento: params.formaPagamento ?? null,
       valor_lavagem: 0,
       valor_secagem: 0,
       valor_atendente: valorAtendente,
@@ -923,6 +925,8 @@ async function criarPedidoBalcaoInterno(params: {
     valor_total: valorAtendente,
   };
 }
+
+const formaPagamentoSchema = z.enum(["dinheiro", "pix", "cartao", "totem"]);
 
 export const pedidoManualSchema = z
   .object({
@@ -960,6 +964,7 @@ export const pedidoManualSchema = z
     // contagem do dia (ver descontarItemDoEstoque).
     item_id: z.string().uuid().optional().nullable(),
     item_quantidade: z.number().int().min(1).max(50).optional().nullable(),
+    forma_pagamento: formaPagamentoSchema.optional().nullable(),
   })
   .superRefine((data, ctx) => {
     // Balcão: sem endereço, sem horário de coleta — nada mais a validar.
@@ -1038,6 +1043,7 @@ export const criarPedidoManual = createServerFn({ method: "POST" })
         observacoes: data.observacoes,
         itemId: data.item_id,
         itemQuantidade: data.item_quantidade,
+        formaPagamento: data.forma_pagamento,
       });
     }
 
@@ -1226,6 +1232,7 @@ export const pedidoBalcaoSchema = z.object({
   observacoes: z.string().trim().max(800).optional().nullable(),
   item_id: z.string().uuid().optional().nullable(),
   item_quantidade: z.number().int().min(1).max(50).optional().nullable(),
+  forma_pagamento: formaPagamentoSchema.optional().nullable(),
 });
 
 /**
@@ -1249,6 +1256,7 @@ export const criarPedidoBalcao = createServerFn({ method: "POST" })
       observacoes: data.observacoes,
       itemId: data.item_id,
       itemQuantidade: data.item_quantidade,
+      formaPagamento: data.forma_pagamento,
     });
   });
 

@@ -37,6 +37,7 @@ import {
 import { useOrderAlertSound } from "@/hooks/use-order-alert-sound";
 import {
   FLUXO_STATUS,
+  FORMA_PAGAMENTO_LABEL,
   STATUS_LABEL,
   TIPO_SERVICO_LABEL,
   chaveDiaBoaVista,
@@ -52,6 +53,7 @@ import {
   statusAplicavel,
   tempoRelativo,
   whatsappLink,
+  type FormaPagamento,
   type PedidoStatus,
   type TipoServico,
 } from "@/lib/lavoura";
@@ -87,6 +89,7 @@ export const Route = createFileRoute("/_authenticated/painel")({
 });
 
 type Pedido = {
+  forma_pagamento?: string | null;
   id: string;
   nome_completo: string;
   telefone: string;
@@ -701,6 +704,16 @@ function PainelPage() {
                   </div>
                 )}
 
+                {detalhe.forma_pagamento ? (
+                  <div>
+                    <p className="font-medium">Pagamento</p>
+                    <p className="text-muted-foreground">
+                      {FORMA_PAGAMENTO_LABEL[detalhe.forma_pagamento as FormaPagamento] ??
+                        detalhe.forma_pagamento}
+                    </p>
+                  </div>
+                ) : null}
+
                 {detalhe.observacoes ? (
                   <div>
                     <p className="font-medium">Observações</p>
@@ -1189,6 +1202,7 @@ type DadosPedidoManual = {
   horario_coleta: string | null;
   item_id: string | null;
   item_quantidade: number | null;
+  forma_pagamento: FormaPagamento | null;
 };
 
 type ItemEstoque = { id: string; nome: string; unidade_medida: string };
@@ -1282,6 +1296,7 @@ function NovoPedidoManualForm({
   const [horarioLocal, setHorarioLocal] = useState("");
   const [itemId, setItemId] = useState("");
   const [itemQtd, setItemQtd] = useState(1);
+  const [formaPagamento, setFormaPagamento] = useState<FormaPagamento>("dinheiro");
   const [enviando, setEnviando] = useState(false);
 
   const ehBalcao = tipoServico === "balcao";
@@ -1318,6 +1333,7 @@ function NovoPedidoManualForm({
         horario_coleta: ehBalcao ? null : horarioLocalParaIso(horarioLocal),
         item_id: itemId || null,
         item_quantidade: itemId ? itemQtd : null,
+        forma_pagamento: ehBalcao ? formaPagamento : null,
       });
     } finally {
       setEnviando(false);
@@ -1474,6 +1490,23 @@ function NovoPedidoManualForm({
         onItemQtdChange={setItemQtd}
       />
 
+      {ehBalcao ? (
+        <div className="space-y-1">
+          <Label>Forma de pagamento</Label>
+          <select
+            value={formaPagamento}
+            onChange={(e) => setFormaPagamento(e.target.value as FormaPagamento)}
+            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+          >
+            {(Object.keys(FORMA_PAGAMENTO_LABEL) as FormaPagamento[]).map((f) => (
+              <option key={f} value={f}>
+                {FORMA_PAGAMENTO_LABEL[f]}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className="space-y-1">
         <Label>Observações</Label>
         <Textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} />
@@ -1499,6 +1532,7 @@ type DadosPedidoBalcao = {
   observacoes: string | null;
   item_id: string | null;
   item_quantidade: number | null;
+  forma_pagamento: FormaPagamento | null;
 };
 
 function NovoPedidoBalcaoForm({
@@ -1513,6 +1547,7 @@ function NovoPedidoBalcaoForm({
   const [observacoes, setObservacoes] = useState("");
   const [itemId, setItemId] = useState("");
   const [itemQtd, setItemQtd] = useState(1);
+  const [formaPagamento, setFormaPagamento] = useState<FormaPagamento>("dinheiro");
   const [enviando, setEnviando] = useState(false);
 
   async function enviar() {
@@ -1530,6 +1565,7 @@ function NovoPedidoBalcaoForm({
         observacoes: observacoes.trim() || null,
         item_id: itemId || null,
         item_quantidade: itemId ? itemQtd : null,
+        forma_pagamento: formaPagamento,
       });
     } finally {
       setEnviando(false);
@@ -1578,6 +1614,21 @@ function NovoPedidoBalcaoForm({
         itemQtd={itemQtd}
         onItemQtdChange={setItemQtd}
       />
+
+      <div className="space-y-1">
+        <Label>Forma de pagamento</Label>
+        <select
+          value={formaPagamento}
+          onChange={(e) => setFormaPagamento(e.target.value as FormaPagamento)}
+          className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+        >
+          {(Object.keys(FORMA_PAGAMENTO_LABEL) as FormaPagamento[]).map((f) => (
+            <option key={f} value={f}>
+              {FORMA_PAGAMENTO_LABEL[f]}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="space-y-1">
         <Label>Observações</Label>

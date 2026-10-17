@@ -15,6 +15,15 @@ export const TIPO_SERVICO_LABEL: Record<TipoServico, string> = {
   balcao: "Balcão (sem delivery)",
 };
 
+export type FormaPagamento = "dinheiro" | "pix" | "cartao" | "totem";
+
+export const FORMA_PAGAMENTO_LABEL: Record<FormaPagamento, string> = {
+  dinheiro: "Dinheiro (espécie)",
+  pix: "Pix",
+  cartao: "Cartão",
+  totem: "Totem da loja",
+};
+
 export const STATUS_LABEL: Record<PedidoStatus, string> = {
   recebido: "Pedido recebido",
   motoboy_busca: "Motoboy a caminho (busca)",

@@ -509,6 +509,7 @@ export type Database = {
           ip_origem: string | null
           item_id: string | null
           item_quantidade: number | null
+          forma_pagamento: string | null
           mesmo_endereco_entrega: boolean | null
           motivo_cancelamento: string | null
           motoboy_nome: string | null
@@ -554,6 +555,7 @@ export type Database = {
           ip_origem?: string | null
           item_id?: string | null
           item_quantidade?: number | null
+          forma_pagamento?: string | null
           mesmo_endereco_entrega?: boolean | null
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
@@ -599,6 +601,7 @@ export type Database = {
           ip_origem?: string | null
           item_id?: string | null
           item_quantidade?: number | null
+          forma_pagamento?: string | null
           mesmo_endereco_entrega?: boolean | null
           motivo_cancelamento?: string | null
           motoboy_nome?: string | null
